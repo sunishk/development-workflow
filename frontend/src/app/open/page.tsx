@@ -59,7 +59,7 @@ export default function OpenPage() {
         <p className="mb-2 text-[11px] font-medium tracking-[0.16em] text-muted-foreground uppercase">01 · Workspace</p>
         <h1 className="text-3xl font-semibold tracking-tight">Open a local project</h1>
         <p className="mt-2 max-w-lg text-sm text-muted-foreground">
-          Select an existing local Git project. Software Factory creates an isolated worktree so the coding agent never edits your working directory directly.
+          Select an existing local Git project. Development AI Agent creates an isolated worktree so the coding agent can implement and validate changes without modifying your working directory directly.
         </p>
 
         <div className="mt-8 rounded-xl border border-border bg-card shadow-xs">
