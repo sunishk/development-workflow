@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from app.db import Job, Project, SessionLocal
 from app.services.event_service import event_service
+from app.services.repository_service import repository_service
 from app.services.workflow_service import workflow_service
 
 router = APIRouter(tags=["jobs"])
@@ -16,6 +17,7 @@ class CreateJobRequest(BaseModel):
     title: str = Field(min_length=1)
     description: str = Field(min_length=1)
     project_id: UUID
+    working_branch: str = Field(min_length=1)
 
 
 class JobResponse(BaseModel):
@@ -91,6 +93,16 @@ def create_job(request: CreateJobRequest) -> JobResponse:
                 detail="This project was created with the old Git URL flow. Re-open it using a local project folder.",
             )
 
+        try:
+            working_branch = repository_service.validate_working_branch(
+                project.local_path,
+                request.working_branch,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
         job = Job(
             id=job_id,
             project_id=request.project_id,
@@ -101,12 +113,18 @@ def create_job(request: CreateJobRequest) -> JobResponse:
             local_path=project.local_path,
             repository_url=None,
             base_branch=project.base_branch,
+            workspace_branch=working_branch,
         )
         db.add(job)
         db.commit()
         db.refresh(job)
 
-    event_service.record(job_id, "JOB_CREATED", stage="CREATED")
+    event_service.record(
+        job_id,
+        "JOB_CREATED",
+        stage="CREATED",
+        message=f"Working branch: {working_branch}",
+    )
     event_service.record(job_id, "JOB_QUEUED", stage="CREATED")
     return to_response(job)
 
