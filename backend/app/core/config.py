@@ -15,8 +15,11 @@ class Settings(BaseSettings):
     workspace_root: str = ".factory/workspaces"
     git_command_timeout_seconds: int = 120
     workspace_command_timeout_seconds: int = 900
+    coding_provider: str = "codex"
     coding_agent_command: str = ""
     coding_agent_timeout_seconds: int = 1800
+    codex_binary: str = "codex"
+    codex_model: str = ""
     max_implementation_attempts: int = 3
     run_install_before_validation: bool = True
 
