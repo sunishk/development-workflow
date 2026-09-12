@@ -31,7 +31,17 @@ class WorkflowEventResponse(BaseModel):
     stage: str | None
     message: str | None
     worker_id: str | None
+    duration_ms: float | None
     created_at: datetime
+
+
+class StageMetricResponse(BaseModel):
+    stage: str
+    attempts: int
+    completed_attempts: int
+    failed_attempts: int
+    total_duration_ms: float
+    last_duration_ms: float | None
 
 
 def to_response(job: Job) -> JobResponse:
@@ -86,10 +96,20 @@ def get_job_events(job_id: UUID) -> list[WorkflowEventResponse]:
             stage=event.stage,
             message=event.message,
             worker_id=event.worker_id,
+            duration_ms=event.duration_ms,
             created_at=event.created_at,
         )
         for event in event_service.list_for_job(job_id)
     ]
+
+
+@router.get("/jobs/{job_id}/metrics", response_model=list[StageMetricResponse])
+def get_job_metrics(job_id: UUID) -> list[StageMetricResponse]:
+    job = workflow_service.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    return [StageMetricResponse(**metric) for metric in event_service.stage_metrics(job_id)]
 
 
 @router.post("/jobs/{job_id}/retry", response_model=JobResponse, status_code=status.HTTP_202_ACCEPTED)
