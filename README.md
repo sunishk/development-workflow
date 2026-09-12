@@ -20,7 +20,7 @@ heartbeat → PostgreSQL
 LangGraph
   ├── PostgreSQL checkpoint
   ├── factory_jobs status/lease
-  └── workflow_events audit history
+  └── workflow_events audit + stage telemetry
 ```
 
 - **FastAPI** — accepts jobs and returns `202 Accepted` without waiting for workflow completion
@@ -28,7 +28,7 @@ LangGraph
 - **Worker subprocess** — executes one workflow job in an isolated Python process
 - **Worker lease/heartbeat** — records worker ownership and renews a bounded lease while work is active
 - **LangGraph** — workflow orchestration and durable execution state
-- **PostgreSQL** — persistent job data, queue state, worker leases, workflow events, test controls, and LangGraph checkpoints
+- **PostgreSQL** — persistent job data, queue state, worker leases, workflow events, stage durations, test controls, and LangGraph checkpoints
 - **Next.js** — frontend (to be added)
 - **Jira / GitLab** — planned integrations
 
@@ -84,9 +84,72 @@ The lease should remain comfortably longer than the heartbeat interval.
 INTAKE → REQUIREMENTS → TECH_SPEC → TASKS → END
 ```
 
+## Per-stage telemetry
+
+Every LangGraph stage records its own attempt lifecycle:
+
+```text
+INTAKE_STARTED
+INTAKE_COMPLETED
+
+REQUIREMENTS_STARTED
+REQUIREMENTS_COMPLETED
+
+TECH_SPEC_STARTED
+TECH_SPEC_FAILED
+TECH_SPEC_STARTED
+TECH_SPEC_COMPLETED
+
+TASKS_STARTED
+TASKS_COMPLETED
+```
+
+`*_COMPLETED` and `*_FAILED` events store `duration_ms`. Failed attempts are preserved rather than overwritten, so retries remain visible in both the audit history and aggregated metrics.
+
+For example:
+
+```json
+{
+  "event_type": "TECH_SPEC_COMPLETED",
+  "stage": "TECH_SPEC",
+  "duration_ms": 15234.417
+}
+```
+
+Retrieve aggregated stage metrics with:
+
+```bash
+curl http://localhost:8000/api/jobs/<job-id>/metrics
+```
+
+Example response:
+
+```json
+[
+  {
+    "stage": "REQUIREMENTS",
+    "attempts": 1,
+    "completed_attempts": 1,
+    "failed_attempts": 0,
+    "total_duration_ms": 8420.117,
+    "last_duration_ms": 8420.117
+  },
+  {
+    "stage": "TECH_SPEC",
+    "attempts": 2,
+    "completed_attempts": 1,
+    "failed_attempts": 1,
+    "total_duration_ms": 19481.351,
+    "last_duration_ms": 15234.417
+  }
+]
+```
+
+This is the first dashboard-ready metrics layer: stage time, retry count, failure count, and total execution time are available without reconstructing them client-side.
+
 ## Workflow event / audit history
 
-Important lifecycle actions are stored in the `workflow_events` table. Current event types include:
+Important lifecycle actions are stored in the `workflow_events` table. Current event types include job/worker lifecycle events plus the per-stage telemetry events above:
 
 ```text
 JOB_CREATED
@@ -110,43 +173,24 @@ Retrieve a job's ordered audit history with:
 curl http://localhost:8000/api/jobs/<job-id>/events
 ```
 
-Example response:
+Each event response now includes an optional `duration_ms` field.
 
-```json
-[
-  {
-    "id": 1,
-    "event_type": "JOB_CREATED",
-    "stage": "CREATED",
-    "message": null,
-    "worker_id": null,
-    "created_at": "2026-09-12T08:00:00Z"
-  },
-  {
-    "id": 4,
-    "event_type": "WORKFLOW_STARTED",
-    "stage": "CREATED",
-    "message": null,
-    "worker_id": "...",
-    "created_at": "2026-09-12T08:00:01Z"
-  }
-]
-```
-
-This event stream is intended to become the source for cycle-time, retry, failure, and AI-productivity metrics later.
+This event stream and the metrics endpoint are intended to become the source for cycle-time, retry, failure, and AI-productivity dashboards.
 
 ## Failure and retry
 
 When a workflow stage raises an exception:
 
-1. The worker marks the job `FAILED`.
-2. The error is persisted in PostgreSQL.
-3. LangGraph retains the latest successful checkpoint.
-4. `WORKFLOW_FAILED` is added to the audit history.
-5. `POST /api/jobs/{job_id}/retry` changes the job back to `QUEUED`, records `RETRY_QUEUED`, and immediately returns `202 Accepted`.
-6. A worker later picks up the same job ID and resumes using the existing checkpoint.
+1. The stage records `<STAGE>_FAILED` with its failed-attempt duration.
+2. The worker marks the job `FAILED`.
+3. The error is persisted in PostgreSQL.
+4. LangGraph retains the latest successful checkpoint.
+5. `WORKFLOW_FAILED` is added to the audit history.
+6. `POST /api/jobs/{job_id}/retry` changes the job back to `QUEUED`, records `RETRY_QUEUED`, and immediately returns `202 Accepted`.
+7. A worker later picks up the same job ID and resumes using the existing checkpoint.
+8. The retried stage creates a new `*_STARTED` / `*_COMPLETED` attempt pair.
 
-The automated test `backend/tests/test_failure_retry.py` verifies checkpoint resume behavior. `backend/tests/test_worker_isolation.py` verifies that workflow jobs are launched through a separate Python process and retain both job and worker ownership identifiers.
+The automated tests cover checkpoint resume, worker isolation, and per-stage telemetry recording.
 
 ### Restart recovery
 
@@ -178,10 +222,11 @@ The create response should initially contain `"status":"QUEUED"`. Poll until it 
 curl http://localhost:8000/api/jobs/<job-id>
 ```
 
-Inspect the audit history:
+Inspect the audit history and metrics:
 
 ```bash
 curl http://localhost:8000/api/jobs/<job-id>/events
+curl http://localhost:8000/api/jobs/<job-id>/metrics
 ```
 
 Queue the retry:
@@ -190,10 +235,11 @@ Queue the retry:
 curl -X POST http://localhost:8000/api/jobs/<job-id>/retry
 ```
 
-Poll again until the worker completes it:
+Poll again until the worker completes it, then inspect metrics again to see the failed and successful attempts aggregated:
 
 ```bash
 curl http://localhost:8000/api/jobs/<job-id>
+curl http://localhost:8000/api/jobs/<job-id>/metrics
 ```
 
 Clear the development failure control afterward:
