@@ -65,6 +65,8 @@ class WorkflowService:
 
             job.status = result.get("status", "COMPLETED")
             job.stage = result.get("stage", "UNKNOWN")
+            job.workspace_path = result.get("workspace_path") or job.workspace_path
+            job.workspace_branch = result.get("workspace_branch") or job.workspace_branch
             job.error = None
             job.worker_id = None
             job.heartbeat_at = None
@@ -89,6 +91,10 @@ class WorkflowService:
                 "requirements": "",
                 "tech_spec": "",
                 "tasks": [],
+                "repository_url": job.repository_url,
+                "base_branch": job.base_branch or "main",
+                "workspace_path": job.workspace_path,
+                "workspace_branch": job.workspace_branch,
             }
 
     def _mark_failed(self, job_id: UUID, worker_id: str, config: dict, exc: Exception) -> Job:
