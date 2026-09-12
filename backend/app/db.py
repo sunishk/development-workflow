@@ -11,10 +11,30 @@ class Base(DeclarativeBase):
     pass
 
 
+class Project(Base):
+    __tablename__ = "factory_projects"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    name: Mapped[str] = mapped_column(String(500))
+    repository_url: Mapped[str] = mapped_column(Text)
+    base_branch: Mapped[str] = mapped_column(String(255), default="main")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
 class Job(Base):
     __tablename__ = "factory_jobs"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    project_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("factory_projects.id"), nullable=True, index=True
+    )
     title: Mapped[str] = mapped_column(String(500))
     description: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(50), default="PENDING")
@@ -69,6 +89,7 @@ def init_db() -> None:
     # create_all() does not add columns to existing tables. Keep these lightweight
     # compatibility migrations until Alembic is introduced.
     with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE factory_jobs ADD COLUMN IF NOT EXISTS project_id UUID"))
         connection.execute(text("ALTER TABLE factory_jobs ADD COLUMN IF NOT EXISTS worker_id VARCHAR(100)"))
         connection.execute(text("ALTER TABLE factory_jobs ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ"))
         connection.execute(text("ALTER TABLE factory_jobs ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ"))
@@ -77,3 +98,4 @@ def init_db() -> None:
         connection.execute(text("ALTER TABLE factory_jobs ADD COLUMN IF NOT EXISTS workspace_path TEXT"))
         connection.execute(text("ALTER TABLE factory_jobs ADD COLUMN IF NOT EXISTS workspace_branch VARCHAR(255)"))
         connection.execute(text("ALTER TABLE workflow_events ADD COLUMN IF NOT EXISTS duration_ms DOUBLE PRECISION"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_factory_jobs_project_id ON factory_jobs (project_id)"))
