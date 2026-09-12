@@ -1,264 +1,91 @@
 # Development Workflow
 
-AI-assisted software development workflow built with Python, FastAPI, LangGraph, and PostgreSQL.
+Python implementation of the Software Factory workflow, using the existing `software-factory` product/UI as the reference experience.
+
+## Iteration 1 scope
+
+This iteration intentionally stops after validation:
+
+```text
+OPEN REPOSITORY
+      ↓
+CREATE JOB / REQUIREMENT
+      ↓
+INTAKE
+      ↓
+REQUIREMENTS
+      ↓
+TECH_SPEC
+      ↓
+TASKS
+      ↓
+REPOSITORY_PREPARATION
+      ↓
+REPOSITORY_ANALYSIS
+      ↓
+IMPLEMENT  ←─────────────┐
+      ↓                  │
+VALIDATE ── failed ──────┘
+      ↓ passed
+COMPLETED
+```
+
+Review agent, human approval and PR/MR creation are deliberately deferred to iteration 2.
 
 ## Architecture
 
 ```text
-Client
-  ↓
-FastAPI
-  ↓
-persist QUEUED job + audit events
-  ↓
-DB-backed dispatcher
-  ↓
-lease-owned isolated Python worker
-  ↓
-heartbeat → PostgreSQL
-  ↓
-LangGraph
-  ├── PostgreSQL checkpoint
-  ├── factory_jobs status/lease
-  └── workflow_events audit + stage telemetry
+Next.js Software Factory UI
+           ↓ REST / polling
+FastAPI Python backend
+           ↓
+PostgreSQL job queue + audit events
+           ↓
+lease-owned worker subprocess
+           ↓
+LangGraph + PostgreSQL checkpoint
+           ↓
+per-job git worktree
+           ↓
+repository-aware coding provider (Codex by default)
+           ↓
+dynamic repository build/test validation
 ```
 
-- **FastAPI** — accepts jobs and returns `202 Accepted` without waiting for workflow completion
-- **Worker manager** — polls PostgreSQL for queued work and atomically claims jobs
-- **Worker subprocess** — executes one workflow job in an isolated Python process
-- **Worker lease/heartbeat** — records worker ownership and renews a bounded lease while work is active
-- **LangGraph** — workflow orchestration and durable execution state
-- **PostgreSQL** — persistent job data, queue state, worker leases, workflow events, stage durations, test controls, and LangGraph checkpoints
-- **Next.js** — frontend (to be added)
-- **Jira / GitLab** — planned integrations
+The frontend retains the Software Factory repository-first workflow:
 
-## Job lifecycle
+- `/open` — register/open a repository workspace
+- `/board?project=<id>` — project board and requirement creation
+- `/board/<job-id>?project=<id>` — live job details, events, diff, changed files and validation results
 
-```text
-CREATED
-   ↓
-QUEUED
-   ↓
-DISPATCHING + lease
-   ↓
-RUNNING + heartbeat
-   ├──→ FAILED ──retry──→ QUEUED
-   ↓
-COMPLETED
-```
+The board lanes currently end at **Validation**. Iteration 2 will extend the same UI with Review, Human Approval and PR/MR lanes.
 
-`POST /api/jobs` persists a job, records `JOB_CREATED` and `JOB_QUEUED`, and returns it in `QUEUED` state. The dispatcher claims the job using `FOR UPDATE SKIP LOCKED`, assigns a unique `worker_id`, sets a lease expiration, and starts a separate process using:
+## Backend capabilities
 
-```bash
-python -m app.worker <job-id> <worker-id>
-```
-
-The worker uses the job ID as the LangGraph `thread_id`. If no checkpoint exists, it starts with the initial graph state. If a checkpoint already exists, such as after a failed attempt or restart, it invokes the graph with the same thread and resumes from the persisted state.
-
-## Worker leases and heartbeat
-
-A claimed job stores:
-
-```text
-worker_id
-heartbeat_at
-lease_expires_at
-```
-
-The child worker periodically renews the lease. The dispatcher checks for `DISPATCHING` or `RUNNING` jobs whose lease has expired. A stale lease is treated as an interrupted worker: the job is returned to `QUEUED`, worker ownership is cleared, and `LEASE_EXPIRED` / `JOB_REQUEUED` audit events are recorded.
-
-Worker ownership is checked before workflow completion is persisted. A stale worker that has lost ownership is therefore prevented from marking the job complete.
-
-Default settings:
-
-```text
-WORKER_HEARTBEAT_INTERVAL_SECONDS=5.0
-WORKER_LEASE_SECONDS=30
-```
-
-The lease should remain comfortably longer than the heartbeat interval.
-
-## Workflow
-
-```text
-INTAKE → REQUIREMENTS → TECH_SPEC → TASKS → END
-```
-
-## Per-stage telemetry
-
-Every LangGraph stage records its own attempt lifecycle:
-
-```text
-INTAKE_STARTED
-INTAKE_COMPLETED
-
-REQUIREMENTS_STARTED
-REQUIREMENTS_COMPLETED
-
-TECH_SPEC_STARTED
-TECH_SPEC_FAILED
-TECH_SPEC_STARTED
-TECH_SPEC_COMPLETED
-
-TASKS_STARTED
-TASKS_COMPLETED
-```
-
-`*_COMPLETED` and `*_FAILED` events store `duration_ms`. Failed attempts are preserved rather than overwritten, so retries remain visible in both the audit history and aggregated metrics.
-
-For example:
-
-```json
-{
-  "event_type": "TECH_SPEC_COMPLETED",
-  "stage": "TECH_SPEC",
-  "duration_ms": 15234.417
-}
-```
-
-Retrieve aggregated stage metrics with:
-
-```bash
-curl http://localhost:8000/api/jobs/<job-id>/metrics
-```
-
-Example response:
-
-```json
-[
-  {
-    "stage": "REQUIREMENTS",
-    "attempts": 1,
-    "completed_attempts": 1,
-    "failed_attempts": 0,
-    "total_duration_ms": 8420.117,
-    "last_duration_ms": 8420.117
-  },
-  {
-    "stage": "TECH_SPEC",
-    "attempts": 2,
-    "completed_attempts": 1,
-    "failed_attempts": 1,
-    "total_duration_ms": 19481.351,
-    "last_duration_ms": 15234.417
-  }
-]
-```
-
-This is the first dashboard-ready metrics layer: stage time, retry count, failure count, and total execution time are available without reconstructing them client-side.
-
-## Workflow event / audit history
-
-Important lifecycle actions are stored in the `workflow_events` table. Current event types include job/worker lifecycle events plus the per-stage telemetry events above:
-
-```text
-JOB_CREATED
-JOB_QUEUED
-JOB_CLAIMED
-WORKER_PROCESS_STARTED
-WORKFLOW_STARTED
-WORKFLOW_RESUMED
-WORKFLOW_COMPLETED
-WORKFLOW_FAILED
-RETRY_QUEUED
-LEASE_EXPIRED
-JOB_REQUEUED
-WORKER_START_FAILED
-WORKER_EXITED
-```
-
-Retrieve a job's ordered audit history with:
-
-```bash
-curl http://localhost:8000/api/jobs/<job-id>/events
-```
-
-Each event response now includes an optional `duration_ms` field.
-
-This event stream and the metrics endpoint are intended to become the source for cycle-time, retry, failure, and AI-productivity dashboards.
-
-## Failure and retry
-
-When a workflow stage raises an exception:
-
-1. The stage records `<STAGE>_FAILED` with its failed-attempt duration.
-2. The worker marks the job `FAILED`.
-3. The error is persisted in PostgreSQL.
-4. LangGraph retains the latest successful checkpoint.
-5. `WORKFLOW_FAILED` is added to the audit history.
-6. `POST /api/jobs/{job_id}/retry` changes the job back to `QUEUED`, records `RETRY_QUEUED`, and immediately returns `202 Accepted`.
-7. A worker later picks up the same job ID and resumes using the existing checkpoint.
-8. The retried stage creates a new `*_STARTED` / `*_COMPLETED` attempt pair.
-
-The automated tests cover checkpoint resume, worker isolation, and per-stage telemetry recording.
-
-### Restart recovery
-
-On startup and during dispatch polling, stale `DISPATCHING`/`RUNNING` leases are returned to `QUEUED`. On graceful shutdown, active worker processes are terminated and unfinished jobs are re-queued. Because LangGraph checkpoints are persisted, replacement workers can continue from the last durable graph state.
-
-## Manual failure/retry demo
-
-Development-only failure controls are persisted in PostgreSQL so isolated worker processes can see them.
-
-Configure one failure:
-
-```bash
-curl -X POST http://localhost:8000/api/test/failure \
-  -H 'Content-Type: application/json' \
-  -d '{"stage":"TECH_SPEC","failures":1}'
-```
-
-Create a job:
-
-```bash
-curl -X POST http://localhost:8000/api/jobs \
-  -H 'Content-Type: application/json' \
-  -d '{"title":"Retry demo","description":"Verify checkpoint recovery"}'
-```
-
-The create response should initially contain `"status":"QUEUED"`. Poll until it becomes `FAILED`:
-
-```bash
-curl http://localhost:8000/api/jobs/<job-id>
-```
-
-Inspect the audit history and metrics:
-
-```bash
-curl http://localhost:8000/api/jobs/<job-id>/events
-curl http://localhost:8000/api/jobs/<job-id>/metrics
-```
-
-Queue the retry:
-
-```bash
-curl -X POST http://localhost:8000/api/jobs/<job-id>/retry
-```
-
-Poll again until the worker completes it, then inspect metrics again to see the failed and successful attempts aggregated:
-
-```bash
-curl http://localhost:8000/api/jobs/<job-id>
-curl http://localhost:8000/api/jobs/<job-id>/metrics
-```
-
-Clear the development failure control afterward:
-
-```bash
-curl -X DELETE http://localhost:8000/api/test/failure
-```
-
-Test controls are only registered when `ENVIRONMENT` is not `production`.
+- FastAPI API
+- PostgreSQL persistent jobs, projects, events and worker leases
+- LangGraph PostgreSQL checkpointing with `thread_id = job_id`
+- async dispatcher + isolated worker processes
+- heartbeat/lease based crash recovery
+- retry failed jobs from the latest durable checkpoint
+- repository cache + per-job git worktrees
+- repository analysis for Maven/Gradle/Node/Python/Go/Rust/.NET
+- repository instruction discovery (`AGENTS.md`, `CLAUDE.md`, `README.md`, `CONTRIBUTING.md`)
+- Codex CLI provider with structured result contract
+- provider-independent custom command adapter
+- dynamic install/test/build validation
+- validation feedback loop back into implementation
+- workflow event history and stage timing metrics
 
 ## Local development
 
-Start PostgreSQL:
+### 1. PostgreSQL
 
 ```bash
 docker compose up -d postgres
 ```
 
-Start the backend from the `backend` directory. This matters because worker subprocesses use that directory as their default working directory:
+### 2. Backend
 
 ```bash
 cd backend
@@ -269,22 +96,77 @@ cp .env.example .env
 uvicorn app.main:app --reload
 ```
 
-Run the automated tests:
+API docs: `http://localhost:8000/docs`
+
+The default coding provider is Codex. The worker machine must have an authenticated Codex CLI installation available on `PATH`.
+
+Check provider readiness:
 
 ```bash
-pytest -q
+curl http://localhost:8000/api/coding-provider/status
 ```
 
-API docs are available at `http://localhost:8000/docs`.
+### 3. Frontend
 
-## Worker configuration
+```bash
+cd frontend
+npm install
+cp .env.example .env.local
+npm run dev
+```
 
-```text
+Open `http://localhost:3000`.
+
+Default frontend configuration:
+
+```env
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api
+```
+
+## Using the UI
+
+1. Open `/open` and register a repository URL/path plus base branch.
+2. Enter the repository board.
+3. Create a job with a title and requirement description.
+4. The Python worker prepares the worktree and analyzes the repository.
+5. Codex implements the requirement in the isolated worktree.
+6. Repository-specific tests/build commands run automatically.
+7. Failed validation is supplied back to the implementation agent, up to the configured attempt limit.
+8. Open the job card to inspect the event history, changed files, git diff, stage timings and validation status.
+9. Failed workflow jobs can be re-queued from the UI and resume from their persisted LangGraph checkpoint.
+
+## Key configuration
+
+```env
 MAX_WORKERS=2
 WORKER_POLL_INTERVAL_SECONDS=1.0
-WORKER_CWD=.
 WORKER_HEARTBEAT_INTERVAL_SECONDS=5.0
 WORKER_LEASE_SECONDS=30
+WORKSPACE_COMMAND_TIMEOUT_SECONDS=900
+CODING_PROVIDER=codex
+CODEX_BINARY=codex
+CODEX_MODEL=
+CODING_AGENT_TIMEOUT_SECONDS=1800
+MAX_IMPLEMENTATION_ATTEMPTS=3
+RUN_INSTALL_BEFORE_VALIDATION=true
 ```
 
-`MAX_WORKERS` limits concurrent child processes for a single API instance. PostgreSQL leases provide stale-worker recovery and ownership protection; a later production milestone should add formal Alembic migrations and stronger idempotency around external side effects before horizontally scaling workers aggressively.
+## Iteration 2
+
+The next iteration will extend the current graph and the reused Software Factory frontend with:
+
+```text
+VALIDATE
+   ↓
+REVIEW
+   ├── changes requested → IMPLEMENT
+   ↓
+HUMAN APPROVAL
+   ├── changes requested → IMPLEMENT
+   ↓
+COMMIT / PUSH
+   ↓
+PR / MR
+```
+
+CI/CD feedback and same-MR remediation can then be layered on top of that delivery flow.
