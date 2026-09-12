@@ -13,7 +13,7 @@ router = APIRouter(tags=["repositories"])
 
 class WorkspaceResponse(BaseModel):
     job_id: UUID
-    repository_url: str
+    local_path: str
     base_branch: str
     workspace_path: str
     workspace_branch: str
@@ -41,7 +41,7 @@ def get_workspace(job_id: UUID) -> WorkspaceResponse:
 
     return WorkspaceResponse(
         job_id=workspace.job_id,
-        repository_url=workspace.repository_url,
+        local_path=workspace.local_path,
         base_branch=workspace.base_branch,
         workspace_path=str(workspace.path),
         workspace_branch=workspace.branch,
