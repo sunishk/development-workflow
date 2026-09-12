@@ -197,10 +197,11 @@ def _validate(state: WorkflowState) -> WorkflowState:
     if not state.get("repository_url"):
         return {**state, "stage": "VALIDATE", "validation_passed": True, "status": "COMPLETED"}
 
-    profile_data = state.get("repository_profile")
-    if not profile_data:
-        raise RuntimeError("Repository profile is missing")
-    profile = RepositoryProfile(**profile_data)
+    # Re-analyze the workspace after implementation. This is important for
+    # bootstrap jobs where the repository initially contains no build files
+    # and the coding agent creates pom.xml/package.json/etc. during IMPLEMENT.
+    profile = repository_analysis_service.analyze(UUID(state["job_id"]))
+    profile_data = profile.to_dict()
 
     commands: list[list[str]] = []
     if settings.run_install_before_validation and profile.install_command:
@@ -232,6 +233,7 @@ def _validate(state: WorkflowState) -> WorkflowState:
         return {
             **state,
             "stage": "VALIDATE",
+            "repository_profile": profile_data,
             "validation_feedback": feedback,
             "validation_passed": False,
         }
@@ -239,6 +241,7 @@ def _validate(state: WorkflowState) -> WorkflowState:
     return {
         **state,
         "stage": "VALIDATE",
+        "repository_profile": profile_data,
         "validation_feedback": None,
         "validation_passed": True,
         "status": "COMPLETED",
