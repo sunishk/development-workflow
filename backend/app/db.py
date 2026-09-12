@@ -16,7 +16,9 @@ class Project(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     name: Mapped[str] = mapped_column(String(500))
-    repository_url: Mapped[str] = mapped_column(Text)
+    local_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Kept nullable for compatibility with projects created before local-only onboarding.
+    repository_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     base_branch: Mapped[str] = mapped_column(String(255), default="main")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
@@ -43,6 +45,7 @@ class Job(Base):
     worker_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    local_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     repository_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     base_branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
     workspace_path: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -89,10 +92,13 @@ def init_db() -> None:
     # create_all() does not add columns to existing tables. Keep these lightweight
     # compatibility migrations until Alembic is introduced.
     with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE factory_projects ADD COLUMN IF NOT EXISTS local_path TEXT"))
+        connection.execute(text("ALTER TABLE factory_projects ALTER COLUMN repository_url DROP NOT NULL"))
         connection.execute(text("ALTER TABLE factory_jobs ADD COLUMN IF NOT EXISTS project_id UUID"))
         connection.execute(text("ALTER TABLE factory_jobs ADD COLUMN IF NOT EXISTS worker_id VARCHAR(100)"))
         connection.execute(text("ALTER TABLE factory_jobs ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ"))
         connection.execute(text("ALTER TABLE factory_jobs ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMPTZ"))
+        connection.execute(text("ALTER TABLE factory_jobs ADD COLUMN IF NOT EXISTS local_path TEXT"))
         connection.execute(text("ALTER TABLE factory_jobs ADD COLUMN IF NOT EXISTS repository_url TEXT"))
         connection.execute(text("ALTER TABLE factory_jobs ADD COLUMN IF NOT EXISTS base_branch VARCHAR(255)"))
         connection.execute(text("ALTER TABLE factory_jobs ADD COLUMN IF NOT EXISTS workspace_path TEXT"))
