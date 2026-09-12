@@ -8,7 +8,6 @@ from app.services.event_service import event_service
 
 
 TERMINAL_STATUSES = {"COMPLETED", "FAILED"}
-STAGE_TERMINAL_SUFFIXES = ("_COMPLETED", "_FAILED")
 
 
 class ProductivityService:
@@ -26,10 +25,10 @@ class ProductivityService:
                 )
             )
 
-        created_at = self._event_time(events, "JOB_CREATED") or job.created_at
-        first_claimed_at = self._event_time(events, "JOB_CLAIMED")
-        completed_at = self._event_time(events, "WORKFLOW_COMPLETED")
-        failed_at = self._event_time(events, "WORKFLOW_FAILED")
+        created_at = self._first_event_time(events, "JOB_CREATED") or job.created_at
+        first_claimed_at = self._first_event_time(events, "JOB_CLAIMED")
+        completed_at = self._last_event_time(events, "WORKFLOW_COMPLETED")
+        failed_at = self._last_event_time(events, "WORKFLOW_FAILED")
         terminal_at = completed_at or (failed_at if job.status == "FAILED" else None)
         effective_end = terminal_at or datetime.now(timezone.utc)
 
@@ -115,8 +114,15 @@ class ProductivityService:
         }
 
     @staticmethod
-    def _event_time(events: list[WorkflowEvent], event_type: str) -> datetime | None:
+    def _first_event_time(events: list[WorkflowEvent], event_type: str) -> datetime | None:
         for event in events:
+            if event.event_type == event_type:
+                return event.created_at
+        return None
+
+    @staticmethod
+    def _last_event_time(events: list[WorkflowEvent], event_type: str) -> datetime | None:
+        for event in reversed(events):
             if event.event_type == event_type:
                 return event.created_at
         return None
