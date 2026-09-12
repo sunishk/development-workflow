@@ -38,6 +38,30 @@ def test_detects_maven_spring_boot(monkeypatch, tmp_path, analyzer):
     assert "AGENTS.md" in profile.instruction_files
 
 
+def test_detects_windows_maven_wrapper(monkeypatch, tmp_path, analyzer):
+    _workspace(monkeypatch, tmp_path)
+    monkeypatch.setattr(analysis_module.sys, "platform", "win32")
+    (tmp_path / "pom.xml").write_text("<project />")
+    (tmp_path / "mvnw.cmd").write_text("@echo off")
+
+    profile = analyzer.analyze(uuid4())
+
+    assert profile.test_command == ["mvnw.cmd", "test"]
+    assert profile.build_command == ["mvnw.cmd", "package", "-DskipTests"]
+
+
+def test_detects_windows_gradle_wrapper(monkeypatch, tmp_path, analyzer):
+    _workspace(monkeypatch, tmp_path)
+    monkeypatch.setattr(analysis_module.sys, "platform", "win32")
+    (tmp_path / "build.gradle").write_text("")
+    (tmp_path / "gradlew.bat").write_text("@echo off")
+
+    profile = analyzer.analyze(uuid4())
+
+    assert profile.test_command == ["gradlew.bat", "test"]
+    assert profile.build_command == ["gradlew.bat", "build", "-x", "test"]
+
+
 def test_detects_nextjs_npm_scripts(monkeypatch, tmp_path, analyzer):
     _workspace(monkeypatch, tmp_path)
     (tmp_path / "package-lock.json").write_text("{}")
