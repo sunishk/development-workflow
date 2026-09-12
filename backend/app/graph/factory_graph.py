@@ -23,7 +23,7 @@ class WorkflowState(TypedDict):
     requirements: str
     tech_spec: str
     tasks: list[str]
-    repository_url: str | None
+    local_path: str | None
     base_branch: str
     workspace_path: str | None
     workspace_branch: str | None
@@ -121,13 +121,13 @@ def _repository_preparation(state: WorkflowState) -> WorkflowState:
     if failure_controller.should_fail("REPOSITORY_PREPARATION"):
         raise RuntimeError("Simulated failure at REPOSITORY_PREPARATION")
 
-    repository_url = state.get("repository_url")
-    if not repository_url:
-        return {**state, "stage": "REPOSITORY_PREPARATION"}
+    local_path = state.get("local_path")
+    if not local_path:
+        raise RuntimeError("Local project path is missing")
 
     workspace = repository_service.prepare_workspace(
         UUID(state["job_id"]),
-        repository_url,
+        local_path,
         state.get("base_branch") or "main",
     )
     return {
@@ -143,9 +143,6 @@ def repository_preparation(state: WorkflowState) -> WorkflowState:
 
 
 def _repository_analysis(state: WorkflowState) -> WorkflowState:
-    if not state.get("repository_url"):
-        return {**state, "stage": "REPOSITORY_ANALYSIS", "repository_profile": None}
-
     profile = repository_analysis_service.analyze(UUID(state["job_id"]))
     return {
         **state,
@@ -159,14 +156,6 @@ def repository_analysis(state: WorkflowState) -> WorkflowState:
 
 
 def _implement(state: WorkflowState) -> WorkflowState:
-    if not state.get("repository_url"):
-        return {
-            **state,
-            "stage": "IMPLEMENT",
-            "validation_passed": True,
-            "status": "COMPLETED",
-        }
-
     profile_data = state.get("repository_profile")
     if not profile_data:
         raise RuntimeError("Repository profile is missing")
@@ -194,14 +183,10 @@ def implement(state: WorkflowState) -> WorkflowState:
 
 
 def _validate(state: WorkflowState) -> WorkflowState:
-    if not state.get("repository_url"):
-        return {**state, "stage": "VALIDATE", "validation_passed": True, "status": "COMPLETED"}
-
-    # Re-analyze the workspace after implementation. This is important for
-    # bootstrap jobs where the repository initially contains no build files
-    # and the coding agent creates pom.xml/package.json/etc. during IMPLEMENT.
-    profile = repository_analysis_service.analyze(UUID(state["job_id"]))
-    profile_data = profile.to_dict()
+    # Re-analyse after implementation because the coding agent may bootstrap a
+    # build system (for example, create pom.xml in an initially minimal repo).
+    refreshed_profile = repository_analysis_service.analyze(UUID(state["job_id"]))
+    profile = refreshed_profile
 
     commands: list[list[str]] = []
     if settings.run_install_before_validation and profile.install_command:
@@ -233,7 +218,7 @@ def _validate(state: WorkflowState) -> WorkflowState:
         return {
             **state,
             "stage": "VALIDATE",
-            "repository_profile": profile_data,
+            "repository_profile": refreshed_profile.to_dict(),
             "validation_feedback": feedback,
             "validation_passed": False,
         }
@@ -241,7 +226,7 @@ def _validate(state: WorkflowState) -> WorkflowState:
     return {
         **state,
         "stage": "VALIDATE",
-        "repository_profile": profile_data,
+        "repository_profile": refreshed_profile.to_dict(),
         "validation_feedback": None,
         "validation_passed": True,
         "status": "COMPLETED",
