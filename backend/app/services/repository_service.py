@@ -46,7 +46,7 @@ class RepositoryService:
                 "-B",
                 branch,
                 str(workspace_path),
-                f"origin/{base_branch}",
+                f"refs/heads/{base_branch}",
             ]
         )
 
@@ -75,6 +75,7 @@ class RepositoryService:
                 raise ValueError(f"Job {job_id} not found")
             repository_url = job.repository_url
             workspace_path_value = job.workspace_path
+            workspace_branch = job.workspace_branch
 
         if not repository_url or not workspace_path_value:
             return
@@ -82,6 +83,11 @@ class RepositoryService:
         cache_path = self._cache_path(repository_url)
         workspace_path = self._safe_workspace_path(Path(workspace_path_value))
         self._remove_worktree(cache_path, workspace_path)
+        if workspace_branch:
+            self._run_git(
+                ["--git-dir", str(cache_path), "branch", "-D", workspace_branch],
+                check=False,
+            )
 
         with SessionLocal() as db:
             job = db.get(Job, job_id)
@@ -113,7 +119,16 @@ class RepositoryService:
         self._run_git(["clone", "--bare", repository_url, str(cache_path)])
 
     def _refresh_cache(self, cache_path: Path) -> None:
-        self._run_git(["--git-dir", str(cache_path), "fetch", "--prune", "origin"])
+        self._run_git(
+            [
+                "--git-dir",
+                str(cache_path),
+                "fetch",
+                "--prune",
+                "origin",
+                "+refs/heads/*:refs/heads/*",
+            ]
+        )
 
     def _remove_worktree(self, cache_path: Path, workspace_path: Path) -> None:
         if cache_path.exists():
