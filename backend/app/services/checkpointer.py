@@ -1,3 +1,7 @@
+import os
+
+os.environ.setdefault("LANGGRAPH_STRICT_MSGPACK", "true")
+
 from psycopg import Connection
 from psycopg.rows import dict_row
 from langgraph.checkpoint.postgres import PostgresSaver
