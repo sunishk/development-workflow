@@ -9,6 +9,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api, type Project } from "@/lib/api";
 
+function projectNameFromPath(path: string) {
+  return path.trim().split(/[\\/]/).filter(Boolean).pop() ?? "Project";
+}
+
 export default function OpenPage() {
   const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -37,7 +41,7 @@ export default function OpenPage() {
       const result = await api.browseProject();
       setLocalPath(result.path);
       if (!name.trim()) {
-        setName(result.path.split("/").filter(Boolean).pop() ?? "Project");
+        setName(projectNameFromPath(result.path));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to select project folder");
@@ -59,7 +63,7 @@ export default function OpenPage() {
         <p className="mb-2 text-[11px] font-medium tracking-[0.16em] text-muted-foreground uppercase">01 · Workspace</p>
         <h1 className="text-3xl font-semibold tracking-tight">Open a local project</h1>
         <p className="mt-2 max-w-lg text-sm text-muted-foreground">
-          Select an existing local Git project. Development AI Agent works directly in that folder on a dedicated factory branch, so you can review the generated changes in your IDE and commit them manually when ready.
+          Select an existing local Git project. Development AI Agent works directly in that folder on the working branch you choose for the requirement, so you can review the generated changes in your IDE and commit them manually when ready.
         </p>
 
         <div className="mt-8 rounded-xl border border-border bg-card shadow-xs">
@@ -78,7 +82,7 @@ export default function OpenPage() {
               setError(null);
               try {
                 const project = await api.createProject({
-                  name: name.trim() || localPath.trim().split("/").filter(Boolean).pop() || "Project",
+                  name: name.trim() || projectNameFromPath(localPath),
                   local_path: localPath.trim(),
                 });
                 router.push(`/board?project=${project.id}`);
@@ -95,7 +99,7 @@ export default function OpenPage() {
             <Field label="Local project folder">
               <div className="flex gap-2">
                 <Input
-                  placeholder="/Users/you/Projects/payment-service"
+                  placeholder="/Users/you/Projects/payment-service or C:\\Projects\\payment-service"
                   value={localPath}
                   onChange={(event) => setLocalPath(event.target.value)}
                 />
@@ -106,7 +110,7 @@ export default function OpenPage() {
               </div>
             </Field>
             <p className="text-xs text-muted-foreground">
-              The folder must be the root of a Git repository and must have no uncommitted changes when a development job starts. A factory/&lt;job-id&gt; branch is created in this repository before the agent edits files.
+              The folder must be the root of a Git repository and must have no uncommitted changes when a development job starts. You choose the new working branch name when creating the requirement.
             </p>
             <Button type="submit" disabled={saving || !localPath.trim()}>
               <FolderOpen className="size-4" />
