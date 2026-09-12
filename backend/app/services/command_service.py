@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from app.core.config import settings
+from app.services.process_service import prepare_command
 from app.services.repository_service import repository_service
 
 
@@ -27,8 +28,9 @@ class CommandService:
         if workspace is None:
             raise ValueError(f"Job {job_id} has no prepared workspace")
 
+        executable_command = prepare_command(command, workspace.path)
         completed = subprocess.run(
-            command,
+            executable_command,
             cwd=workspace.path,
             check=False,
             capture_output=True,
