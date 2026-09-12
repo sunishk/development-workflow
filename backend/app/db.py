@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, String, Text, create_engine
+from sqlalchemy import DateTime, Integer, String, Text, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from app.core.config import settings
@@ -28,6 +28,14 @@ class Job(Base):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
     )
+
+
+class TestFailureControl(Base):
+    __tablename__ = "workflow_test_failure_control"
+
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    stage: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    failures_remaining: Mapped[int] = mapped_column(Integer, default=0)
 
 
 engine = create_engine(settings.database_url, pool_pre_ping=True)
