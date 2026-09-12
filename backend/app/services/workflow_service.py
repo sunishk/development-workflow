@@ -91,7 +91,7 @@ class WorkflowService:
                 "requirements": "",
                 "tech_spec": "",
                 "tasks": [],
-                "repository_url": job.repository_url,
+                "local_path": job.local_path,
                 "base_branch": job.base_branch or "main",
                 "workspace_path": job.workspace_path,
                 "workspace_branch": job.workspace_branch,
