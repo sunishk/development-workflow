@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from app.services.coding_providers import build_provider
+from app.services.event_service import event_service
 from app.services.filesystem_service import filesystem_service
 from app.services.repository_analysis_service import RepositoryProfile
 from app.services.repository_service import repository_service
@@ -49,6 +50,12 @@ class CodingAgentService:
 
         provider = build_provider()
         result = provider.execute(workspace.path, payload)
+        event_service.record(
+            job_id,
+            "CODING_AGENT_COMPLETED",
+            stage="IMPLEMENT",
+            message=f"provider={result.provider}; {result.summary}"[:8000],
+        )
         return CodingAgentResult(
             provider=result.provider,
             summary=result.summary,
