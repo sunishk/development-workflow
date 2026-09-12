@@ -6,23 +6,21 @@ from app.api.jobs import router as jobs_router
 from app.api.test_controls import router as test_controls_router
 from app.core.config import settings
 from app.db import init_db
-from app.services.checkpointer import checkpointer_manager
-from app.services.workflow_service import workflow_service
+from app.services.worker_manager import worker_manager
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
-    workflow_service.start()
+    worker_manager.start()
     yield
-    workflow_service.stop()
-    checkpointer_manager.stop()
+    worker_manager.stop()
 
 
 app = FastAPI(
     title="Development Workflow",
     description="AI-assisted software development workflow",
-    version="0.2.0",
+    version="0.3.0",
     lifespan=lifespan,
 )
 
