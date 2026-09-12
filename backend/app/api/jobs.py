@@ -15,9 +15,7 @@ router = APIRouter(tags=["jobs"])
 class CreateJobRequest(BaseModel):
     title: str = Field(min_length=1)
     description: str = Field(min_length=1)
-    project_id: UUID | None = None
-    repository_url: str | None = None
-    base_branch: str = "main"
+    project_id: UUID
 
 
 class JobResponse(BaseModel):
@@ -28,7 +26,7 @@ class JobResponse(BaseModel):
     status: str
     stage: str
     error: str | None
-    repository_url: str | None
+    local_path: str | None
     base_branch: str | None
     workspace_path: str | None
     workspace_branch: str | None
@@ -62,7 +60,7 @@ def to_response(job: Job) -> JobResponse:
         status=job.status,
         stage=job.stage,
         error=job.error,
-        repository_url=job.repository_url,
+        local_path=job.local_path,
         base_branch=job.base_branch,
         workspace_path=job.workspace_path,
         workspace_branch=job.workspace_branch,
@@ -82,16 +80,16 @@ def list_jobs(project_id: UUID | None = Query(default=None)) -> list[JobResponse
 @router.post("/jobs", response_model=JobResponse, status_code=status.HTTP_202_ACCEPTED)
 def create_job(request: CreateJobRequest) -> JobResponse:
     job_id = uuid4()
-    repository_url = request.repository_url
-    base_branch: str | None = request.base_branch if repository_url else None
 
     with SessionLocal() as db:
-        if request.project_id is not None:
-            project = db.get(Project, request.project_id)
-            if project is None:
-                raise HTTPException(status_code=404, detail="Project not found")
-            repository_url = project.repository_url
-            base_branch = project.base_branch
+        project = db.get(Project, request.project_id)
+        if project is None:
+            raise HTTPException(status_code=404, detail="Project not found")
+        if not project.local_path:
+            raise HTTPException(
+                status_code=409,
+                detail="This project was created with the old Git URL flow. Re-open it using a local project folder.",
+            )
 
         job = Job(
             id=job_id,
@@ -100,8 +98,9 @@ def create_job(request: CreateJobRequest) -> JobResponse:
             description=request.description,
             status="QUEUED",
             stage="CREATED",
-            repository_url=repository_url,
-            base_branch=base_branch,
+            local_path=project.local_path,
+            repository_url=None,
+            base_branch=project.base_branch,
         )
         db.add(job)
         db.commit()
