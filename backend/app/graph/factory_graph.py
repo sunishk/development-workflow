@@ -125,10 +125,15 @@ def _repository_preparation(state: WorkflowState) -> WorkflowState:
     if not local_path:
         raise RuntimeError("Local project path is missing")
 
+    working_branch = state.get("workspace_branch")
+    if not working_branch:
+        raise RuntimeError("Working branch is missing")
+
     workspace = repository_service.prepare_workspace(
         UUID(state["job_id"]),
         local_path,
         state.get("base_branch") or "main",
+        working_branch,
     )
     return {
         **state,
