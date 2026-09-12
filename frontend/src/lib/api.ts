@@ -85,6 +85,7 @@ export const api = {
   createProject: (input: { name: string; local_path: string }) =>
     request<Project>("/projects", { method: "POST", body: JSON.stringify(input) }),
   listJobs: (projectId: string) => request<Job[]>(`/jobs?project_id=${encodeURIComponent(projectId)}`),
+  listAllJobs: () => request<Job[]>("/jobs"),
   createJob: (input: { project_id: string; title: string; description: string }) =>
     request<Job>("/jobs", { method: "POST", body: JSON.stringify(input) }),
   getJob: (jobId: string) => request<Job>(`/jobs/${jobId}`),
