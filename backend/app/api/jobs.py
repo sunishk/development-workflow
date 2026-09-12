@@ -1,11 +1,15 @@
+import asyncio
+import json
 from datetime import datetime
+from time import monotonic
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from app.db import Job, Project, SessionLocal
+from app.db import Job, Project, SessionLocal, WorkflowEvent
 from app.services.event_service import event_service
 from app.services.repository_service import repository_service
 from app.services.workflow_service import workflow_service
@@ -69,6 +73,34 @@ def to_response(job: Job) -> JobResponse:
     )
 
 
+def _job_payload(job: Job) -> dict[str, str | None]:
+    return {
+        "job_id": str(job.id),
+        "project_id": str(job.project_id) if job.project_id else None,
+        "title": job.title,
+        "description": job.description,
+        "status": job.status,
+        "stage": job.stage,
+        "error": job.error,
+        "local_path": job.local_path,
+        "base_branch": job.base_branch,
+        "workspace_path": job.workspace_path,
+        "workspace_branch": job.workspace_branch,
+    }
+
+
+def _event_payload(event: WorkflowEvent) -> dict[str, int | float | str | None]:
+    return {
+        "id": event.id,
+        "event_type": event.event_type,
+        "stage": event.stage,
+        "message": event.message,
+        "worker_id": event.worker_id,
+        "duration_ms": event.duration_ms,
+        "created_at": event.created_at.isoformat(),
+    }
+
+
 @router.get("/jobs", response_model=list[JobResponse])
 def list_jobs(project_id: UUID | None = Query(default=None)) -> list[JobResponse]:
     with SessionLocal() as db:
@@ -77,6 +109,80 @@ def list_jobs(project_id: UUID | None = Query(default=None)) -> list[JobResponse
             statement = statement.where(Job.project_id == project_id)
         jobs = db.scalars(statement).all()
         return [to_response(job) for job in jobs]
+
+
+@router.get("/jobs/stream")
+def stream_jobs(request: Request, project_id: UUID = Query(...)) -> StreamingResponse:
+    with SessionLocal() as db:
+        project = db.get(Project, project_id)
+        if project is None:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+    async def event_stream():
+        # Capture the event cursor before the snapshot. Any event committed after
+        # this point will either already be reflected in the snapshot or will be
+        # replayed from the cursor, so the board cannot miss a stage transition.
+        with SessionLocal() as db:
+            last_event_id = db.scalar(
+                select(func.max(WorkflowEvent.id))
+                .join(Job, Job.id == WorkflowEvent.job_id)
+                .where(Job.project_id == project_id)
+            ) or 0
+            jobs = list(
+                db.scalars(
+                    select(Job)
+                    .where(Job.project_id == project_id)
+                    .order_by(Job.created_at.desc())
+                )
+            )
+
+        yield f"data: {json.dumps({'kind': 'snapshot', 'jobs': [_job_payload(job) for job in jobs]})}\n\n"
+        last_keepalive = monotonic()
+
+        while not await request.is_disconnected():
+            with SessionLocal() as db:
+                events = list(
+                    db.scalars(
+                        select(WorkflowEvent)
+                        .join(Job, Job.id == WorkflowEvent.job_id)
+                        .where(
+                            Job.project_id == project_id,
+                            WorkflowEvent.id > last_event_id,
+                        )
+                        .order_by(WorkflowEvent.id)
+                    )
+                )
+
+                for event in events:
+                    job = db.get(Job, event.job_id)
+                    if job is None:
+                        last_event_id = event.id
+                        continue
+
+                    payload = {
+                        "kind": "job",
+                        "job": _job_payload(job),
+                        "event": _event_payload(event),
+                    }
+                    yield f"id: {event.id}\ndata: {json.dumps(payload)}\n\n"
+                    last_event_id = event.id
+                    last_keepalive = monotonic()
+
+            if monotonic() - last_keepalive >= 15:
+                yield ": keep-alive\n\n"
+                last_keepalive = monotonic()
+
+            await asyncio.sleep(0.2)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/jobs", response_model=JobResponse, status_code=status.HTTP_202_ACCEPTED)
