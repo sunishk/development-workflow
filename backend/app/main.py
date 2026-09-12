@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.api.dashboard import router as dashboard_router
 from app.api.jobs import router as jobs_router
 from app.api.test_controls import router as test_controls_router
 from app.core.config import settings
@@ -20,11 +21,12 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title="Development Workflow",
     description="AI-assisted software development workflow",
-    version="0.3.0",
+    version="0.4.0",
     lifespan=lifespan,
 )
 
 app.include_router(jobs_router, prefix="/api")
+app.include_router(dashboard_router, prefix="/api")
 if settings.environment != "production":
     app.include_router(test_controls_router, prefix="/api")
 
