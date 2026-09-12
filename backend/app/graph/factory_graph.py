@@ -1,6 +1,6 @@
 from typing import TypedDict
-from uuid import UUID
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 
 
@@ -48,7 +48,7 @@ def tasks(state: WorkflowState) -> WorkflowState:
     }
 
 
-def build_graph():
+def build_graph(checkpointer: BaseCheckpointSaver):
     graph = StateGraph(WorkflowState)
 
     graph.add_node("intake", intake)
@@ -62,22 +62,4 @@ def build_graph():
     graph.add_edge("tech_spec", "tasks")
     graph.add_edge("tasks", END)
 
-    return graph.compile()
-
-
-factory_graph = build_graph()
-
-
-def run_workflow(job_id: UUID, title: str, description: str) -> WorkflowState:
-    initial_state: WorkflowState = {
-        "job_id": str(job_id),
-        "title": title,
-        "description": description,
-        "stage": "CREATED",
-        "status": "PENDING",
-        "requirements": "",
-        "tech_spec": "",
-        "tasks": [],
-    }
-
-    return factory_graph.invoke(initial_state)
+    return graph.compile(checkpointer=checkpointer)
