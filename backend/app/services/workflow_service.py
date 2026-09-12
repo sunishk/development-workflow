@@ -95,6 +95,10 @@ class WorkflowService:
                 "base_branch": job.base_branch or "main",
                 "workspace_path": job.workspace_path,
                 "workspace_branch": job.workspace_branch,
+                "repository_profile": None,
+                "implementation_attempts": 0,
+                "validation_feedback": None,
+                "validation_passed": None,
             }
 
     def _mark_failed(self, job_id: UUID, worker_id: str, config: dict, exc: Exception) -> Job:
