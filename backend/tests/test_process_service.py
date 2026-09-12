@@ -23,7 +23,7 @@ def test_resolves_command_from_path(monkeypatch, tmp_path: Path):
 def test_wraps_windows_batch_command(monkeypatch, tmp_path: Path):
     wrapper = tmp_path / "mvnw.cmd"
     wrapper.write_text("@echo off", encoding="utf-8")
-    monkeypatch.setattr(process_service.os, "name", "nt")
+    monkeypatch.setattr(process_service, "_is_windows", lambda: True)
     monkeypatch.setenv("COMSPEC", "cmd.exe")
 
     command = process_service.prepare_command(["mvnw.cmd", "test"], tmp_path)
