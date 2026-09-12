@@ -1,7 +1,7 @@
 export type Project = {
   id: string;
   name: string;
-  repository_url: string;
+  local_path: string | null;
   base_branch: string;
 };
 
@@ -13,7 +13,7 @@ export type Job = {
   status: string;
   stage: string;
   error: string | null;
-  repository_url: string | null;
+  local_path: string | null;
   base_branch: string | null;
   workspace_path: string | null;
   workspace_branch: string | null;
@@ -81,7 +81,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   listProjects: () => request<Project[]>("/projects"),
   getProject: (projectId: string) => request<Project>(`/projects/${projectId}`),
-  createProject: (input: { name: string; repository_url: string; base_branch: string }) =>
+  browseProject: () => request<{ path: string }>("/projects/browse", { method: "POST" }),
+  createProject: (input: { name: string; local_path: string }) =>
     request<Project>("/projects", { method: "POST", body: JSON.stringify(input) }),
   listJobs: (projectId: string) => request<Job[]>(`/jobs?project_id=${encodeURIComponent(projectId)}`),
   createJob: (input: { project_id: string; title: string; description: string }) =>
