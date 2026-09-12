@@ -18,16 +18,44 @@ class Workspace:
 
 
 class RepositoryService:
+    def validate_working_branch(self, local_path: str, working_branch: str) -> str:
+        source_path = Path(local_path).expanduser().resolve()
+        branch = working_branch.strip()
+
+        self._validate_local_repository(source_path)
+        if not branch:
+            raise ValueError("Working branch is required")
+
+        branch_check = self._run_git(
+            ["check-ref-format", "--branch", branch],
+            check=False,
+        )
+        if branch_check.returncode != 0:
+            raise ValueError(f"Invalid Git branch name: {branch}")
+
+        branch_exists = (
+            self._run_git(
+                ["-C", str(source_path), "show-ref", "--verify", "--quiet", f"refs/heads/{branch}"],
+                check=False,
+            ).returncode
+            == 0
+        )
+        if branch_exists:
+            raise RuntimeError(
+                f"Branch '{branch}' already exists. Choose a new branch name for this development job."
+            )
+
+        return branch
+
     def prepare_workspace(
         self,
         job_id: UUID,
         local_path: str,
         base_branch: str,
+        working_branch: str,
     ) -> Workspace:
         source_path = Path(local_path).expanduser().resolve()
-        branch = f"factory/{job_id}"
-
-        self._validate_local_repository(source_path)
+        branch = self.validate_working_branch(local_path, working_branch)
 
         status = self._run_git(["-C", str(source_path), "status", "--porcelain"]).stdout.strip()
         if status:
@@ -41,18 +69,19 @@ class RepositoryService:
         if not current_branch:
             raise RuntimeError("Detached HEAD is not supported; checkout a branch first")
 
-        branch_exists = bool(
+        base_exists = (
             self._run_git(
-                ["-C", str(source_path), "branch", "--list", branch],
+                ["-C", str(source_path), "show-ref", "--verify", "--quiet", f"refs/heads/{base_branch}"],
                 check=False,
-            ).stdout.strip()
+            ).returncode
+            == 0
         )
-        if branch_exists:
-            self._run_git(["-C", str(source_path), "switch", branch])
-        else:
-            self._run_git(
-                ["-C", str(source_path), "switch", "-c", branch, base_branch]
-            )
+        if not base_exists:
+            raise RuntimeError(f"Base branch '{base_branch}' does not exist in the local repository")
+
+        self._run_git(
+            ["-C", str(source_path), "switch", "-c", branch, base_branch]
+        )
 
         with SessionLocal() as db:
             job = db.get(Job, job_id)
