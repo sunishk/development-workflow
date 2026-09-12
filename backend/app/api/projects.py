@@ -77,14 +77,7 @@ def list_projects() -> list[ProjectResponse]:
         return [to_response(project) for project in projects]
 
 
-@router.post("/projects/browse", response_model=BrowseProjectResponse)
-def browse_project_folder() -> BrowseProjectResponse:
-    if sys.platform != "darwin":
-        raise HTTPException(
-            status_code=501,
-            detail="Native folder browsing is currently supported on macOS only; enter the local path manually",
-        )
-
+def _browse_macos() -> str:
     script = 'POSIX path of (choose folder with prompt "Select a local Git project")'
     result = subprocess.run(
         ["osascript", "-e", script],
@@ -94,7 +87,50 @@ def browse_project_folder() -> BrowseProjectResponse:
     )
     if result.returncode != 0:
         raise HTTPException(status_code=400, detail="Folder selection cancelled")
-    return BrowseProjectResponse(path=result.stdout.strip().rstrip("/"))
+    return str(Path(result.stdout.strip()).resolve())
+
+
+def _browse_windows() -> str:
+    script = (
+        "Add-Type -AssemblyName System.Windows.Forms; "
+        "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog; "
+        "$dialog.Description = 'Select a local Git project'; "
+        "$dialog.ShowNewFolderButton = $false; "
+        "if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { "
+        "Write-Output $dialog.SelectedPath; exit 0 } else { exit 2 }"
+    )
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-STA", "-Command", script],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if result.returncode != 0:
+        raise HTTPException(status_code=400, detail="Folder selection cancelled")
+    selected = result.stdout.strip()
+    if not selected:
+        raise HTTPException(status_code=400, detail="Folder selection cancelled")
+    return str(Path(selected).resolve())
+
+
+@router.post("/projects/browse", response_model=BrowseProjectResponse)
+def browse_project_folder() -> BrowseProjectResponse:
+    try:
+        if sys.platform == "darwin":
+            selected_path = _browse_macos()
+        elif sys.platform == "win32":
+            selected_path = _browse_windows()
+        else:
+            raise HTTPException(
+                status_code=501,
+                detail="Native folder browsing is supported on macOS and Windows; enter the local path manually on this platform",
+            )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=500, detail="Native folder browser command is not available") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(status_code=408, detail="Folder selection timed out") from exc
+
+    return BrowseProjectResponse(path=selected_path)
 
 
 @router.post("/projects", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
