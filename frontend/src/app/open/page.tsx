@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronRight, FolderOpen, FolderGit2 } from "lucide-react";
+import { ChevronRight, FolderOpen, FolderGit2, LayoutDashboard } from "lucide-react";
 import { AppHeader } from "@/components/AppChrome";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,7 +48,13 @@ export default function OpenPage() {
 
   return (
     <div className="min-h-screen">
-      <AppHeader />
+      <AppHeader
+        right={
+          <Button variant="ghost" size="sm" onClick={() => router.push("/dashboard")}>
+            <LayoutDashboard className="size-3.5" /> Dashboard
+          </Button>
+        }
+      />
       <main className="mx-auto max-w-2xl px-4 py-12">
         <p className="mb-2 text-[11px] font-medium tracking-[0.16em] text-muted-foreground uppercase">01 · Workspace</p>
         <h1 className="text-3xl font-semibold tracking-tight">Open a local project</h1>
