@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
+from app.db import SessionLocal, TestFailureControl
 from app.graph.test_hooks import failure_controller
 
 router = APIRouter(prefix="/test", tags=["test controls"])
@@ -13,8 +14,18 @@ class FailureRequest(BaseModel):
 
 @router.post("/failure")
 def configure_failure(request: FailureRequest) -> dict[str, str | int]:
-    failure_controller.fail_stage = request.stage
-    failure_controller.failures_remaining = request.failures
+    failure_controller.fail_stage = None
+    failure_controller.failures_remaining = 0
+
+    with SessionLocal() as db:
+        control = db.get(TestFailureControl, 1)
+        if control is None:
+            control = TestFailureControl(id=1)
+            db.add(control)
+        control.stage = request.stage
+        control.failures_remaining = request.failures
+        db.commit()
+
     return {
         "stage": request.stage,
         "failures_remaining": request.failures,
@@ -25,4 +36,12 @@ def configure_failure(request: FailureRequest) -> dict[str, str | int]:
 def clear_failure() -> dict[str, str]:
     failure_controller.fail_stage = None
     failure_controller.failures_remaining = 0
+
+    with SessionLocal() as db:
+        control = db.get(TestFailureControl, 1)
+        if control is not None:
+            control.stage = None
+            control.failures_remaining = 0
+            db.commit()
+
     return {"status": "cleared"}
