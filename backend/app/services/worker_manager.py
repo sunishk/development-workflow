@@ -1,7 +1,6 @@
 import subprocess
 import sys
 import threading
-import time
 from uuid import UUID
 
 from sqlalchemy import select, update
@@ -17,6 +16,7 @@ class WorkerManager:
         self._processes: dict[UUID, subprocess.Popen] = {}
 
     def start(self) -> None:
+        self._stop_event.clear()
         self._recover_interrupted_jobs()
         self._thread = threading.Thread(
             target=self._dispatch_loop,
@@ -30,6 +30,31 @@ class WorkerManager:
         if self._thread is not None:
             self._thread.join(timeout=5)
         self._thread = None
+
+        for process in self._processes.values():
+            if process.poll() is None:
+                process.terminate()
+
+        for process in self._processes.values():
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+
+        interrupted_job_ids = list(self._processes.keys())
+        self._processes.clear()
+
+        if interrupted_job_ids:
+            with SessionLocal() as db:
+                db.execute(
+                    update(Job)
+                    .where(
+                        Job.id.in_(interrupted_job_ids),
+                        Job.status.in_(["DISPATCHING", "RUNNING"]),
+                    )
+                    .values(status="QUEUED", error="Interrupted by application shutdown")
+                )
+                db.commit()
 
     def _recover_interrupted_jobs(self) -> None:
         with SessionLocal() as db:
