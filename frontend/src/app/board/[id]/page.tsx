@@ -104,7 +104,7 @@ function JobDetailsInner() {
               </div>
               <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{job.description}</p>
               <dl className="mt-5 grid gap-3 border-t pt-4 text-xs sm:grid-cols-2">
-                <Meta label="Repository" value={job.repository_url ?? "—"} />
+                <Meta label="Local project" value={job.local_path ?? "—"} />
                 <Meta label="Base branch" value={job.base_branch ?? "—"} />
                 <Meta label="Workspace branch" value={job.workspace_branch ?? "Not prepared yet"} />
                 <Meta label="Job ID" value={job.job_id} mono />
