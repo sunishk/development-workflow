@@ -7,6 +7,7 @@ from langgraph.graph import END, START, StateGraph
 
 from app.graph.test_hooks import failure_controller
 from app.services.event_service import event_service
+from app.services.repository_service import repository_service
 
 
 class WorkflowState(TypedDict):
@@ -18,6 +19,10 @@ class WorkflowState(TypedDict):
     requirements: str
     tech_spec: str
     tasks: list[str]
+    repository_url: str | None
+    base_branch: str
+    workspace_path: str | None
+    workspace_branch: str | None
 
 
 def _run_stage(
@@ -101,12 +106,41 @@ def _tasks(state: WorkflowState) -> WorkflowState:
             "Implement the required change",
             "Add or update tests",
         ],
-        "status": "COMPLETED",
     }
 
 
 def tasks(state: WorkflowState) -> WorkflowState:
     return _run_stage("TASKS", state, _tasks)
+
+
+def _repository_preparation(state: WorkflowState) -> WorkflowState:
+    if failure_controller.should_fail("REPOSITORY_PREPARATION"):
+        raise RuntimeError("Simulated failure at REPOSITORY_PREPARATION")
+
+    repository_url = state.get("repository_url")
+    if not repository_url:
+        return {
+            **state,
+            "stage": "REPOSITORY_PREPARATION",
+            "status": "COMPLETED",
+        }
+
+    workspace = repository_service.prepare_workspace(
+        UUID(state["job_id"]),
+        repository_url,
+        state.get("base_branch") or "main",
+    )
+    return {
+        **state,
+        "stage": "REPOSITORY_PREPARATION",
+        "workspace_path": str(workspace.path),
+        "workspace_branch": workspace.branch,
+        "status": "COMPLETED",
+    }
+
+
+def repository_preparation(state: WorkflowState) -> WorkflowState:
+    return _run_stage("REPOSITORY_PREPARATION", state, _repository_preparation)
 
 
 def build_graph(checkpointer: BaseCheckpointSaver):
@@ -116,11 +150,13 @@ def build_graph(checkpointer: BaseCheckpointSaver):
     graph.add_node("requirements", requirements)
     graph.add_node("tech_spec", tech_spec)
     graph.add_node("tasks", tasks)
+    graph.add_node("repository_preparation", repository_preparation)
 
     graph.add_edge(START, "intake")
     graph.add_edge("intake", "requirements")
     graph.add_edge("requirements", "tech_spec")
     graph.add_edge("tech_spec", "tasks")
-    graph.add_edge("tasks", END)
+    graph.add_edge("tasks", "repository_preparation")
+    graph.add_edge("repository_preparation", END)
 
     return graph.compile(checkpointer=checkpointer)
