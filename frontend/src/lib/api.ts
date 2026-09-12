@@ -46,6 +46,12 @@ export type CodingProviderStatus = {
   message: string;
 };
 
+export type WorkspaceStatus = {
+  branch: string;
+  changed_files: string[];
+  clean: boolean;
+};
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -77,13 +83,14 @@ export const api = {
   getProject: (projectId: string) => request<Project>(`/projects/${projectId}`),
   createProject: (input: { name: string; repository_url: string; base_branch: string }) =>
     request<Project>("/projects", { method: "POST", body: JSON.stringify(input) }),
-  listJobs: (projectId: string) =>
-    request<Job[]>(`/jobs?project_id=${encodeURIComponent(projectId)}`),
+  listJobs: (projectId: string) => request<Job[]>(`/jobs?project_id=${encodeURIComponent(projectId)}`),
   createJob: (input: { project_id: string; title: string; description: string }) =>
     request<Job>("/jobs", { method: "POST", body: JSON.stringify(input) }),
   getJob: (jobId: string) => request<Job>(`/jobs/${jobId}`),
   getEvents: (jobId: string) => request<WorkflowEvent[]>(`/jobs/${jobId}/events`),
   getMetrics: (jobId: string) => request<StageMetric[]>(`/jobs/${jobId}/metrics`),
+  getWorkspaceStatus: (jobId: string) => request<WorkspaceStatus>(`/jobs/${jobId}/workspace/status`),
+  getWorkspaceDiff: (jobId: string) => request<{ diff: string }>(`/jobs/${jobId}/workspace/diff`),
   retryJob: (jobId: string) => request<Job>(`/jobs/${jobId}/retry`, { method: "POST" }),
   getCodingProviderStatus: () => request<CodingProviderStatus>("/coding-provider/status"),
 };
