@@ -29,6 +29,10 @@ export type WorkflowEvent = {
   created_at: string;
 };
 
+export type JobStreamMessage =
+  | { kind: "snapshot"; jobs: Job[] }
+  | { kind: "job"; job: Job; event: WorkflowEvent };
+
 export type StageMetric = {
   stage: string;
   attempts: number;
@@ -86,6 +90,8 @@ export const api = {
     request<Project>("/projects", { method: "POST", body: JSON.stringify(input) }),
   listJobs: (projectId: string) => request<Job[]>(`/jobs?project_id=${encodeURIComponent(projectId)}`),
   listAllJobs: () => request<Job[]>("/jobs"),
+  jobsStreamUrl: (projectId: string) =>
+    `${API_BASE_URL}/jobs/stream?project_id=${encodeURIComponent(projectId)}`,
   createJob: (input: { project_id: string; title: string; description: string; working_branch: string }) =>
     request<Job>("/jobs", { method: "POST", body: JSON.stringify(input) }),
   getJob: (jobId: string) => request<Job>(`/jobs/${jobId}`),
