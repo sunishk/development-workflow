@@ -59,7 +59,7 @@ export default function OpenPage() {
         <p className="mb-2 text-[11px] font-medium tracking-[0.16em] text-muted-foreground uppercase">01 · Workspace</p>
         <h1 className="text-3xl font-semibold tracking-tight">Open a local project</h1>
         <p className="mt-2 max-w-lg text-sm text-muted-foreground">
-          Select an existing local Git project. Development AI Agent creates an isolated worktree so the coding agent can implement and validate changes without modifying your working directory directly.
+          Select an existing local Git project. Development AI Agent works directly in that folder on a dedicated factory branch, so you can review the generated changes in your IDE and commit them manually when ready.
         </p>
 
         <div className="mt-8 rounded-xl border border-border bg-card shadow-xs">
@@ -106,7 +106,7 @@ export default function OpenPage() {
               </div>
             </Field>
             <p className="text-xs text-muted-foreground">
-              The folder must be the root of a Git repository and should have no uncommitted changes when a development job starts.
+              The folder must be the root of a Git repository and must have no uncommitted changes when a development job starts. A factory/&lt;job-id&gt; branch is created in this repository before the agent edits files.
             </p>
             <Button type="submit" disabled={saving || !localPath.trim()}>
               <FolderOpen className="size-4" />
