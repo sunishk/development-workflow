@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from langgraph.graph import CompiledStateGraph
+from langgraph.graph.state import CompiledStateGraph
 
 from app.db import Job, SessionLocal
 from app.graph.factory_graph import WorkflowState, build_graph
