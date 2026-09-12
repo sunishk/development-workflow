@@ -6,6 +6,9 @@ class Settings(BaseSettings):
     environment: str = "development"
     database_url: str = "postgresql+psycopg://workflow:workflow@localhost:5432/development_workflow"
     langgraph_database_url: str = "postgres://workflow:workflow@localhost:5432/development_workflow?sslmode=disable"
+    max_workers: int = 2
+    worker_poll_interval_seconds: float = 1.0
+    worker_cwd: str = "."
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
