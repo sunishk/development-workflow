@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: development-workflow-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: development_workflow
+      POSTGRES_USER: workflow
+      POSTGRES_PASSWORD: workflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - workflow-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U workflow -d development_workflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  workflow-postgres-data:
