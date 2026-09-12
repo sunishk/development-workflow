@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     repository_cache_root: str = ".factory/repositories"
     workspace_root: str = ".factory/workspaces"
     git_command_timeout_seconds: int = 120
+    workspace_command_timeout_seconds: int = 900
+    coding_agent_command: str = ""
+    coding_agent_timeout_seconds: int = 1800
+    max_implementation_attempts: int = 3
+    run_install_before_validation: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
