@@ -9,7 +9,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { api, type CodingProviderStatus, type Job, type Project } from "@/lib/api";
+import {
+  api,
+  type CodingProviderStatus,
+  type Job,
+  type JobStreamMessage,
+  type Project,
+} from "@/lib/api";
 
 function BoardInner() {
   const params = useSearchParams();
@@ -18,6 +24,7 @@ function BoardInner() {
   const [project, setProject] = useState<Project | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [provider, setProvider] = useState<CodingProviderStatus | null>(null);
+  const [liveConnected, setLiveConnected] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [workingBranch, setWorkingBranch] = useState("");
@@ -47,9 +54,34 @@ function BoardInner() {
       router.replace("/open");
       return;
     }
+
     void load();
-    const timer = window.setInterval(() => void load(), 3000);
-    return () => window.clearInterval(timer);
+
+    const source = new EventSource(api.jobsStreamUrl(projectId));
+    source.onopen = () => setLiveConnected(true);
+    source.onerror = () => setLiveConnected(false);
+    source.onmessage = (message) => {
+      try {
+        const update = JSON.parse(message.data) as JobStreamMessage;
+        if (update.kind === "snapshot") {
+          setJobs(update.jobs);
+          return;
+        }
+
+        setJobs((current) => {
+          const exists = current.some((job) => job.job_id === update.job.job_id);
+          if (!exists) return [update.job, ...current];
+          return current.map((job) => (job.job_id === update.job.job_id ? update.job : job));
+        });
+      } catch {
+        // Ignore malformed SSE messages; EventSource will keep the connection alive.
+      }
+    };
+
+    return () => {
+      source.close();
+      setLiveConnected(false);
+    };
   }, [projectId]);
 
   if (!projectId) return null;
@@ -67,6 +99,9 @@ function BoardInner() {
         left={<span className="hidden truncate text-sm text-muted-foreground sm:inline">{project?.name}</span>}
         right={
           <>
+            <Badge variant={liveConnected ? "success" : "outline"}>
+              live · {liveConnected ? "connected" : "reconnecting"}
+            </Badge>
             {provider && (
               <Badge variant={provider.available ? "success" : "failed"}>
                 {provider.provider} · {provider.available ? "ready" : "unavailable"}
@@ -104,14 +139,14 @@ function BoardInner() {
               setCreating(true);
               setError(null);
               try {
-                await api.createJob({
+                const created = await api.createJob({
                   project_id: projectId,
                   title: title.trim(),
                   description: description.trim(),
                   working_branch: workingBranch.trim(),
                 });
+                setJobs((current) => [created, ...current.filter((job) => job.job_id !== created.job_id)]);
                 resetCreateForm();
-                await load();
               } catch (err) {
                 setError(err instanceof Error ? err.message : "Unable to create job");
               } finally {
