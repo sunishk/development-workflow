@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     max_workers: int = 2
     worker_poll_interval_seconds: float = 1.0
     worker_cwd: str = "."
+    worker_heartbeat_interval_seconds: float = 5.0
+    worker_lease_seconds: int = 30
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
