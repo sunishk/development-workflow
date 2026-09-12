@@ -31,9 +31,47 @@ The analyzer currently recognizes common repository markers and derives commands
 
 It also discovers repository instruction files such as `AGENTS.md`, `CLAUDE.md`, `README.md`, and `CONTRIBUTING.md`.
 
-## Coding agent contract
+## Concrete coding provider
 
-`CODING_AGENT_COMMAND` is intentionally provider-agnostic. The command is executed with the job worktree as its current directory. A JSON request is sent on stdin containing:
+`CODING_PROVIDER=codex` is now the default concrete implementation provider. The worker invokes Codex CLI headlessly inside the isolated job worktree using `codex exec` with JSONL output, an ephemeral session, `workspace-write` sandboxing, and a JSON output schema.
+
+Codex receives the work item and repository profile on stdin and is instructed to edit files directly in the current worktree. It must not commit, push, or create a PR/MR; those actions remain the responsibility of later workflow stages.
+
+The final Codex response is schema-constrained to:
+
+```json
+{
+  "summary": "Implemented the requested change",
+  "changed_files": ["src/example.py"],
+  "notes": ["Added unit tests"]
+}
+```
+
+The provider adapter normalizes missing executable, timeout, non-zero exit, invalid structured output, stdout, and stderr into actionable workflow failures.
+
+### Codex setup
+
+Install and authenticate Codex CLI on the same machine/container that runs workflow workers. The worker inherits that Codex authentication context.
+
+```text
+CODING_PROVIDER=codex
+CODEX_BINARY=codex
+CODEX_MODEL=
+CODING_AGENT_TIMEOUT_SECONDS=1800
+```
+
+`CODEX_MODEL` can be left empty to use the CLI's configured/default model. Set it only when the deployment needs to pin a model.
+
+## Generic command provider
+
+The previous provider-agnostic command contract remains available:
+
+```text
+CODING_PROVIDER=command
+CODING_AGENT_COMMAND=/path/to/custom-coding-agent
+```
+
+The custom command is executed with the job worktree as its current directory and receives JSON on stdin containing:
 
 - job ID
 - title and description
@@ -42,9 +80,7 @@ It also discovers repository instruction files such as `AGENTS.md`, `CLAUDE.md`,
 - repository instruction file contents
 - validation feedback from the previous attempt, when present
 
-The configured coding engine is expected to edit files directly in the current workspace and exit with code 0 when its implementation attempt is complete.
-
-Example shape:
+Example input shape:
 
 ```json
 {
@@ -64,7 +100,7 @@ Example shape:
 }
 ```
 
-This allows the factory to drive any coding engine that can consume the contract, rather than coupling workflow orchestration to a particular LLM vendor.
+This keeps workflow orchestration independent of one vendor even though Codex is the first built-in provider.
 
 ## Dynamic validation
 
@@ -74,13 +110,16 @@ Configuration:
 
 ```text
 WORKSPACE_COMMAND_TIMEOUT_SECONDS=900
+CODING_PROVIDER=codex
 CODING_AGENT_COMMAND=
 CODING_AGENT_TIMEOUT_SECONDS=1800
+CODEX_BINARY=codex
+CODEX_MODEL=
 MAX_IMPLEMENTATION_ATTEMPTS=3
 RUN_INSTALL_BEFORE_VALIDATION=true
 ```
 
-If a repository job reaches `IMPLEMENT` without `CODING_AGENT_COMMAND`, it fails clearly rather than reporting a false success.
+With the default `codex` provider, repository-backed jobs can proceed through a real implementation attempt as long as Codex CLI is installed and authenticated in the worker environment.
 
 ## Current boundary
 
