@@ -23,45 +23,27 @@ class WorkflowService:
             raise RuntimeError("Workflow service has not been started")
         return self._graph
 
-    def create_and_run(self, job_id: UUID) -> Job:
+    def execute(self, job_id: UUID) -> Job:
         with SessionLocal() as db:
             job = db.get(Job, job_id)
             if job is None:
                 raise ValueError(f"Job {job_id} not found")
             job.status = "RUNNING"
-            job.stage = "INTAKE"
             job.error = None
             db.commit()
             db.refresh(job)
 
-            initial_state: WorkflowState = {
-                "job_id": str(job.id),
-                "title": job.title,
-                "description": job.description,
-                "stage": job.stage,
-                "status": job.status,
-                "requirements": "",
-                "tech_spec": "",
-                "tasks": [],
-            }
-
         config = {"configurable": {"thread_id": str(job_id)}}
+        checkpoint = self.graph.get_state(config)
+        has_checkpoint = bool(checkpoint.values)
 
         try:
-            result = self.graph.invoke(initial_state, config)
+            if has_checkpoint:
+                result = self.graph.invoke(None, config)
+            else:
+                result = self.graph.invoke(self._initial_state(job_id), config)
         except Exception as exc:
-            with SessionLocal() as db:
-                job = db.get(Job, job_id)
-                if job:
-                    job.status = "FAILED"
-                    job.error = str(exc)
-                    state = self.graph.get_state(config)
-                    if state.values:
-                        job.stage = state.values.get("stage", job.stage)
-                    db.commit()
-                    db.refresh(job)
-                    return job
-            raise
+            return self._mark_failed(job_id, config, exc)
 
         with SessionLocal() as db:
             job = db.get(Job, job_id)
@@ -74,40 +56,33 @@ class WorkflowService:
             db.refresh(job)
             return job
 
-    def retry(self, job_id: UUID) -> Job:
+    def _initial_state(self, job_id: UUID) -> WorkflowState:
         with SessionLocal() as db:
             job = db.get(Job, job_id)
             if job is None:
                 raise ValueError(f"Job {job_id} not found")
-            job.status = "RUNNING"
-            job.error = None
-            db.commit()
+            return {
+                "job_id": str(job.id),
+                "title": job.title,
+                "description": job.description,
+                "stage": "CREATED",
+                "status": "PENDING",
+                "requirements": "",
+                "tech_spec": "",
+                "tasks": [],
+            }
 
-        config = {"configurable": {"thread_id": str(job_id)}}
-
-        try:
-            result = self.graph.invoke(None, config)
-        except Exception as exc:
-            with SessionLocal() as db:
-                job = db.get(Job, job_id)
-                if job:
-                    job.status = "FAILED"
-                    job.error = str(exc)
-                    state = self.graph.get_state(config)
-                    if state.values:
-                        job.stage = state.values.get("stage", job.stage)
-                    db.commit()
-                    db.refresh(job)
-                    return job
-            raise
-
+    def _mark_failed(self, job_id: UUID, config: dict, exc: Exception) -> Job:
         with SessionLocal() as db:
             job = db.get(Job, job_id)
             if job is None:
                 raise ValueError(f"Job {job_id} not found")
-            job.status = result.get("status", "COMPLETED")
-            job.stage = result.get("stage", "UNKNOWN")
-            job.error = None
+
+            job.status = "FAILED"
+            job.error = str(exc)
+            state = self.graph.get_state(config)
+            if state.values:
+                job.stage = state.values.get("stage", job.stage)
             db.commit()
             db.refresh(job)
             return job
