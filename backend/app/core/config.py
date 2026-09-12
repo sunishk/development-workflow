@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     worker_cwd: str = "."
     worker_heartbeat_interval_seconds: float = 5.0
     worker_lease_seconds: int = 30
+    repository_cache_root: str = ".factory/repositories"
+    workspace_root: str = ".factory/workspaces"
+    git_command_timeout_seconds: int = 120
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
