@@ -1,10 +1,11 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 
-from app.db import Job, SessionLocal
+from app.db import Job, Project, SessionLocal
 from app.services.event_service import event_service
 from app.services.workflow_service import workflow_service
 
@@ -14,12 +15,14 @@ router = APIRouter(tags=["jobs"])
 class CreateJobRequest(BaseModel):
     title: str = Field(min_length=1)
     description: str = Field(min_length=1)
+    project_id: UUID | None = None
     repository_url: str | None = None
     base_branch: str = "main"
 
 
 class JobResponse(BaseModel):
     job_id: UUID
+    project_id: UUID | None
     title: str
     description: str
     status: str
@@ -53,6 +56,7 @@ class StageMetricResponse(BaseModel):
 def to_response(job: Job) -> JobResponse:
     return JobResponse(
         job_id=job.id,
+        project_id=job.project_id,
         title=job.title,
         description=job.description,
         status=job.status,
@@ -65,18 +69,39 @@ def to_response(job: Job) -> JobResponse:
     )
 
 
+@router.get("/jobs", response_model=list[JobResponse])
+def list_jobs(project_id: UUID | None = Query(default=None)) -> list[JobResponse]:
+    with SessionLocal() as db:
+        statement = select(Job).order_by(Job.created_at.desc())
+        if project_id is not None:
+            statement = statement.where(Job.project_id == project_id)
+        jobs = db.scalars(statement).all()
+        return [to_response(job) for job in jobs]
+
+
 @router.post("/jobs", response_model=JobResponse, status_code=status.HTTP_202_ACCEPTED)
 def create_job(request: CreateJobRequest) -> JobResponse:
     job_id = uuid4()
+    repository_url = request.repository_url
+    base_branch: str | None = request.base_branch if repository_url else None
+
     with SessionLocal() as db:
+        if request.project_id is not None:
+            project = db.get(Project, request.project_id)
+            if project is None:
+                raise HTTPException(status_code=404, detail="Project not found")
+            repository_url = project.repository_url
+            base_branch = project.base_branch
+
         job = Job(
             id=job_id,
+            project_id=request.project_id,
             title=request.title,
             description=request.description,
             status="QUEUED",
             stage="CREATED",
-            repository_url=request.repository_url,
-            base_branch=request.base_branch if request.repository_url else None,
+            repository_url=repository_url,
+            base_branch=base_branch,
         )
         db.add(job)
         db.commit()
