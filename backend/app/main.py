@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from app.api.jobs import router as jobs_router
 from app.api.test_controls import router as test_controls_router
+from app.core.config import settings
 from app.db import init_db
 from app.services.checkpointer import checkpointer_manager
 from app.services.workflow_service import workflow_service
@@ -26,7 +27,8 @@ app = FastAPI(
 )
 
 app.include_router(jobs_router, prefix="/api")
-app.include_router(test_controls_router, prefix="/api")
+if settings.environment != "production":
+    app.include_router(test_controls_router, prefix="/api")
 
 
 @app.get("/health")
