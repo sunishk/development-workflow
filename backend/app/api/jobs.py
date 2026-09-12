@@ -14,6 +14,8 @@ router = APIRouter(tags=["jobs"])
 class CreateJobRequest(BaseModel):
     title: str = Field(min_length=1)
     description: str = Field(min_length=1)
+    repository_url: str | None = None
+    base_branch: str = "main"
 
 
 class JobResponse(BaseModel):
@@ -23,6 +25,10 @@ class JobResponse(BaseModel):
     status: str
     stage: str
     error: str | None
+    repository_url: str | None
+    base_branch: str | None
+    workspace_path: str | None
+    workspace_branch: str | None
 
 
 class WorkflowEventResponse(BaseModel):
@@ -52,6 +58,10 @@ def to_response(job: Job) -> JobResponse:
         status=job.status,
         stage=job.stage,
         error=job.error,
+        repository_url=job.repository_url,
+        base_branch=job.base_branch,
+        workspace_path=job.workspace_path,
+        workspace_branch=job.workspace_branch,
     )
 
 
@@ -65,6 +75,8 @@ def create_job(request: CreateJobRequest) -> JobResponse:
             description=request.description,
             status="QUEUED",
             stage="CREATED",
+            repository_url=request.repository_url,
+            base_branch=request.base_branch if request.repository_url else None,
         )
         db.add(job)
         db.commit()
