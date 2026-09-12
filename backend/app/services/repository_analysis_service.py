@@ -1,4 +1,5 @@
 import json
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from uuid import UUID
@@ -40,7 +41,7 @@ class RepositoryAnalysisService:
         if "pom.xml" in files:
             languages.append("Java")
             build_tool = "Maven"
-            mvn = "./mvnw" if (root / "mvnw").exists() else "mvn"
+            mvn = self._wrapper_command(root, "mvnw", "mvnw.cmd", "mvn")
             test_command = [mvn, "test"]
             build_command = [mvn, "package", "-DskipTests"]
             if self._contains(root / "pom.xml", "spring-boot"):
@@ -49,7 +50,7 @@ class RepositoryAnalysisService:
         elif "build.gradle" in files or "build.gradle.kts" in files:
             languages.extend(["Java", "Kotlin"] if "build.gradle.kts" in files else ["Java"])
             build_tool = "Gradle"
-            gradle = "./gradlew" if (root / "gradlew").exists() else "gradle"
+            gradle = self._wrapper_command(root, "gradlew", "gradlew.bat", "gradle")
             test_command = [gradle, "test"]
             build_command = [gradle, "build", "-x", "test"]
 
@@ -118,6 +119,16 @@ class RepositoryAnalysisService:
             build_command=build_command,
             instruction_files=instruction_files,
         )
+
+    @staticmethod
+    def _wrapper_command(root: Path, unix_name: str, windows_name: str, fallback: str) -> str:
+        if sys.platform == "win32" and (root / windows_name).exists():
+            return windows_name
+        if (root / unix_name).exists():
+            return f"./{unix_name}"
+        if (root / windows_name).exists():
+            return windows_name
+        return fallback
 
     @staticmethod
     def _contains(path: Path, value: str) -> bool:
