@@ -3,6 +3,8 @@ from typing import TypedDict
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 
+from app.graph.test_hooks import failure_controller
+
 
 class WorkflowState(TypedDict):
     job_id: str
@@ -16,10 +18,14 @@ class WorkflowState(TypedDict):
 
 
 def intake(state: WorkflowState) -> WorkflowState:
+    if failure_controller.should_fail("INTAKE"):
+        raise RuntimeError("Simulated failure at INTAKE")
     return {**state, "stage": "INTAKE", "status": "RUNNING"}
 
 
 def requirements(state: WorkflowState) -> WorkflowState:
+    if failure_controller.should_fail("REQUIREMENTS"):
+        raise RuntimeError("Simulated failure at REQUIREMENTS")
     return {
         **state,
         "stage": "REQUIREMENTS",
@@ -28,6 +34,8 @@ def requirements(state: WorkflowState) -> WorkflowState:
 
 
 def tech_spec(state: WorkflowState) -> WorkflowState:
+    if failure_controller.should_fail("TECH_SPEC"):
+        raise RuntimeError("Simulated failure at TECH_SPEC")
     return {
         **state,
         "stage": "TECH_SPEC",
@@ -36,6 +44,8 @@ def tech_spec(state: WorkflowState) -> WorkflowState:
 
 
 def tasks(state: WorkflowState) -> WorkflowState:
+    if failure_controller.should_fail("TASKS"):
+        raise RuntimeError("Simulated failure at TASKS")
     return {
         **state,
         "stage": "TASKS",
