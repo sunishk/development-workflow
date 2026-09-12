@@ -8,7 +8,7 @@ router = APIRouter(prefix="/test", tags=["test controls"])
 
 
 class FailureRequest(BaseModel):
-    stage: str = Field(pattern="^(INTAKE|REQUIREMENTS|TECH_SPEC|TASKS)$")
+    stage: str = Field(pattern="^(INTAKE|REQUIREMENTS|TECH_SPEC|TASKS|REPOSITORY_PREPARATION)$")
     failures: int = Field(default=1, ge=1, le=10)
 
 
