@@ -20,6 +20,7 @@ function BoardInner() {
   const [provider, setProvider] = useState<CodingProviderStatus | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [workingBranch, setWorkingBranch] = useState("");
   const [creating, setCreating] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,6 +57,7 @@ function BoardInner() {
   const resetCreateForm = () => {
     setTitle("");
     setDescription("");
+    setWorkingBranch("");
     setShowCreateForm(false);
   };
 
@@ -98,11 +100,16 @@ function BoardInner() {
             className="rounded-xl border border-border bg-card p-5 shadow-xs"
             onSubmit={async (event) => {
               event.preventDefault();
-              if (!title.trim() || !description.trim()) return;
+              if (!title.trim() || !description.trim() || !workingBranch.trim()) return;
               setCreating(true);
               setError(null);
               try {
-                await api.createJob({ project_id: projectId, title: title.trim(), description: description.trim() });
+                await api.createJob({
+                  project_id: projectId,
+                  title: title.trim(),
+                  description: description.trim(),
+                  working_branch: workingBranch.trim(),
+                });
                 resetCreateForm();
                 await load();
               } catch (err) {
@@ -117,7 +124,7 @@ function BoardInner() {
                 <p className="text-sm font-semibold">Create development job</p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   Repository: <span className="font-medium text-foreground">{project?.name ?? "Loading…"}</span>
-                  {project?.base_branch ? ` · ${project.base_branch}` : ""}
+                  {project?.base_branch ? ` · base ${project.base_branch}` : ""}
                 </p>
               </div>
               <Button type="button" variant="ghost" size="sm" onClick={resetCreateForm} disabled={creating}>
@@ -134,6 +141,21 @@ function BoardInner() {
                   onChange={(event) => setTitle(event.target.value)}
                   autoFocus
                 />
+              </label>
+
+              <label className="grid gap-1.5">
+                <span className="text-sm font-medium">Working branch *</span>
+                <Input
+                  placeholder="feature/payment-validation"
+                  value={workingBranch}
+                  onChange={(event) => setWorkingBranch(event.target.value)}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                />
+                <span className="text-xs text-muted-foreground">
+                  A new branch will be created from {project?.base_branch ?? "the project base branch"}. Existing branch names are not reused automatically.
+                </span>
               </label>
 
               <label className="grid gap-1.5">
@@ -156,7 +178,7 @@ function BoardInner() {
               <Button type="button" variant="outline" onClick={resetCreateForm} disabled={creating}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={creating || !title.trim() || !description.trim()}>
+              <Button type="submit" disabled={creating || !title.trim() || !workingBranch.trim() || !description.trim()}>
                 <Plus className="size-4" /> {creating ? "Starting…" : "Start development"}
               </Button>
             </div>
