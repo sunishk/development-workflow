@@ -1,4 +1,6 @@
 import json
+import os
+import shlex
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -6,6 +8,7 @@ from pathlib import Path
 from typing import Protocol
 
 from app.core.config import settings
+from app.services.process_service import prepare_command
 
 
 @dataclass(frozen=True)
@@ -44,7 +47,7 @@ class CodexCliProvider:
     def execute(self, workspace: Path, payload: dict) -> ProviderExecutionResult:
         prompt = self._build_prompt(payload)
 
-        with tempfile.TemporaryDirectory(prefix="factory-codex-") as temp_dir:
+        with tempfile.TemporaryDirectory(prefix="development-ai-codex-") as temp_dir:
             temp_path = Path(temp_dir)
             schema_path = temp_path / "output-schema.json"
             output_path = temp_path / "last-message.json"
@@ -69,7 +72,7 @@ class CodexCliProvider:
 
             try:
                 completed = subprocess.run(
-                    command,
+                    prepare_command(command, workspace),
                     cwd=workspace,
                     input=prompt,
                     capture_output=True,
@@ -117,7 +120,7 @@ class CodexCliProvider:
     @staticmethod
     def _build_prompt(payload: dict) -> str:
         return (
-            "You are the implementation agent for an automated software factory.\n"
+            "You are the implementation agent for Development AI Agent.\n"
             "Work only inside the current repository workspace.\n"
             "Implement the requested change, update or add tests where appropriate, and follow repository instructions.\n"
             "Do not commit, push, or create pull requests. The orchestration system handles delivery.\n"
@@ -133,14 +136,12 @@ class CommandProvider:
     name = "command"
 
     def execute(self, workspace: Path, payload: dict) -> ProviderExecutionResult:
-        import shlex
-
-        command = shlex.split(settings.coding_agent_command)
+        command = shlex.split(settings.coding_agent_command, posix=os.name != "nt")
         if not command:
             raise RuntimeError("CODING_AGENT_COMMAND produced an empty command")
         try:
             completed = subprocess.run(
-                command,
+                prepare_command(command, workspace),
                 cwd=workspace,
                 input=json.dumps(payload),
                 capture_output=True,
