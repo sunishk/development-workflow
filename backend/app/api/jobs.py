@@ -159,14 +159,30 @@ def stream_jobs(request: Request, project_id: UUID = Query(...)) -> StreamingRes
                         last_event_id = event.id
                         continue
 
+                    job_payload = _job_payload(job)
+                    if event.stage and event.event_type == f"{event.stage}_STARTED":
+                        # A fast workflow can advance through several stages before
+                        # the SSE query runs. Replaying the event's own stage keeps
+                        # each intermediate lane visible instead of sending the
+                        # final persisted stage for every queued event.
+                        job_payload["stage"] = event.stage
+                        if job_payload["status"] not in {"FAILED", "COMPLETED"}:
+                            job_payload["status"] = "RUNNING"
+
                     payload = {
                         "kind": "job",
-                        "job": _job_payload(job),
+                        "job": job_payload,
                         "event": _event_payload(event),
                     }
                     yield f"id: {event.id}\ndata: {json.dumps(payload)}\n\n"
                     last_event_id = event.id
                     last_keepalive = monotonic()
+
+                    if event.stage and event.event_type == f"{event.stage}_STARTED":
+                        # This delay affects only the UI event feed, never the
+                        # workflow itself. It gives very fast stages a brief but
+                        # visible moment on the Kanban board.
+                        await asyncio.sleep(0.12)
 
             if monotonic() - last_keepalive >= 15:
                 yield ": keep-alive\n\n"
