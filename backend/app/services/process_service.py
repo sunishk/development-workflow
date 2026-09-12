@@ -7,6 +7,10 @@ from pathlib import Path
 _BATCH_SUFFIXES = {".bat", ".cmd"}
 
 
+def _is_windows() -> bool:
+    return os.name == "nt"
+
+
 def prepare_command(command: list[str], cwd: Path | str | None = None) -> list[str]:
     """Prepare a command for safe shell-free execution on macOS/Linux and Windows."""
     if not command or any(not part for part in command):
@@ -32,7 +36,7 @@ def prepare_command(command: list[str], cwd: Path | str | None = None) -> list[s
         if resolved:
             prepared[0] = resolved
 
-    if os.name == "nt" and Path(prepared[0]).suffix.lower() in _BATCH_SUFFIXES:
+    if _is_windows() and Path(prepared[0]).suffix.lower() in _BATCH_SUFFIXES:
         comspec = os.environ.get("COMSPEC", "cmd.exe")
         return [comspec, "/d", "/s", "/c", subprocess.list2cmdline(prepared)]
 
