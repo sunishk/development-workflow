@@ -18,9 +18,19 @@ class EventService:
         duration_ms: float | None = None,
     ) -> None:
         with SessionLocal() as db:
+            job = db.get(Job, job_id)
             if worker_id is None:
-                job = db.get(Job, job_id)
                 worker_id = job.worker_id if job is not None else None
+
+            # Keep the persisted job stage in sync with the event stream. This
+            # lets the board recover the exact active lane after a refresh and
+            # gives SSE consumers a current Job snapshot for every stage event.
+            if (
+                job is not None
+                and stage is not None
+                and event_type == f"{stage}_STARTED"
+            ):
+                job.stage = stage
 
             db.add(
                 WorkflowEvent(
