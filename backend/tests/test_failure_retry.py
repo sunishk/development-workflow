@@ -26,6 +26,10 @@ def initial_state(job_id: str) -> dict:
         "requirements": "",
         "tech_spec": "",
         "tasks": [],
+        "repository_url": None,
+        "base_branch": "main",
+        "workspace_path": None,
+        "workspace_branch": None,
     }
 
 
@@ -47,7 +51,7 @@ def test_failed_stage_resumes_from_last_checkpoint():
 
     result = graph.invoke(None, config)
 
-    assert result["stage"] == "TASKS"
+    assert result["stage"] == "REPOSITORY_PREPARATION"
     assert result["status"] == "COMPLETED"
     assert result["tech_spec"] == "Technical analysis for: Retry test"
     assert result["tasks"]
@@ -72,4 +76,5 @@ def test_retry_uses_same_thread_and_checkpoint():
     result = graph.invoke(None, config)
 
     assert graph.get_state(config).values["job_id"] == job_id
+    assert result["stage"] == "REPOSITORY_PREPARATION"
     assert result["status"] == "COMPLETED"
