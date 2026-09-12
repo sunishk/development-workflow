@@ -19,10 +19,14 @@ def prepare_command(command: list[str], cwd: Path | str | None = None) -> list[s
     executable_path = Path(executable)
     has_path_separator = "/" in executable or "\\" in executable
 
-    if has_path_separator and working_dir is not None and not executable_path.is_absolute():
+    if working_dir is not None and not executable_path.is_absolute():
         candidate = (working_dir / executable_path).resolve()
         if candidate.exists():
             prepared[0] = str(candidate)
+        elif not has_path_separator:
+            resolved = shutil.which(executable)
+            if resolved:
+                prepared[0] = resolved
     elif not has_path_separator:
         resolved = shutil.which(executable)
         if resolved:
