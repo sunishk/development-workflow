@@ -1,4 +1,3 @@
-import hashlib
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -15,7 +14,7 @@ class Workspace:
     job_id: UUID
     path: Path
     branch: str
-    repository_url: str
+    local_path: str
     base_branch: str
 
 
@@ -23,30 +22,35 @@ class RepositoryService:
     def prepare_workspace(
         self,
         job_id: UUID,
-        repository_url: str,
-        base_branch: str = "main",
+        local_path: str,
+        base_branch: str,
     ) -> Workspace:
-        cache_path = self._cache_path(repository_url)
+        source_path = Path(local_path).expanduser().resolve()
         workspace_path = self._workspace_path(job_id)
         branch = f"factory/{job_id}"
 
         self._ensure_roots()
-        self._ensure_repository_cache(cache_path, repository_url)
-        self._refresh_cache(cache_path)
+        self._validate_local_repository(source_path)
+
+        status = self._run_git(["-C", str(source_path), "status", "--porcelain"]).stdout.strip()
+        if status:
+            raise RuntimeError(
+                "Local project has uncommitted changes. Commit or stash them before starting a Software Factory job."
+            )
 
         if workspace_path.exists():
-            self._remove_worktree(cache_path, workspace_path)
+            self._remove_worktree(source_path, workspace_path)
 
         self._run_git(
             [
-                "--git-dir",
-                str(cache_path),
+                "-C",
+                str(source_path),
                 "worktree",
                 "add",
                 "-B",
                 branch,
                 str(workspace_path),
-                f"refs/heads/{base_branch}",
+                base_branch,
             ]
         )
 
@@ -54,7 +58,7 @@ class RepositoryService:
             job = db.get(Job, job_id)
             if job is None:
                 raise ValueError(f"Job {job_id} not found")
-            job.repository_url = repository_url
+            job.local_path = str(source_path)
             job.base_branch = base_branch
             job.workspace_path = str(workspace_path)
             job.workspace_branch = branch
@@ -64,28 +68,28 @@ class RepositoryService:
             job_id,
             "WORKSPACE_PREPARED",
             stage="REPOSITORY_PREPARATION",
-            message=f"{repository_url} @ {base_branch} -> {branch}",
+            message=f"{source_path} @ {base_branch} -> {branch}",
         )
-        return Workspace(job_id, workspace_path, branch, repository_url, base_branch)
+        return Workspace(job_id, workspace_path, branch, str(source_path), base_branch)
 
     def cleanup_workspace(self, job_id: UUID) -> None:
         with SessionLocal() as db:
             job = db.get(Job, job_id)
             if job is None:
                 raise ValueError(f"Job {job_id} not found")
-            repository_url = job.repository_url
+            local_path = job.local_path
             workspace_path_value = job.workspace_path
             workspace_branch = job.workspace_branch
 
-        if not repository_url or not workspace_path_value:
+        if not local_path or not workspace_path_value:
             return
 
-        cache_path = self._cache_path(repository_url)
+        source_path = Path(local_path).expanduser().resolve()
         workspace_path = self._safe_workspace_path(Path(workspace_path_value))
-        self._remove_worktree(cache_path, workspace_path)
+        self._remove_worktree(source_path, workspace_path)
         if workspace_branch:
             self._run_git(
-                ["--git-dir", str(cache_path), "branch", "-D", workspace_branch],
+                ["-C", str(source_path), "branch", "-D", workspace_branch],
                 check=False,
             )
 
@@ -103,46 +107,37 @@ class RepositoryService:
             job = db.get(Job, job_id)
             if job is None:
                 raise ValueError(f"Job {job_id} not found")
-            if not job.repository_url or not job.workspace_path or not job.workspace_branch:
+            if not job.local_path or not job.workspace_path or not job.workspace_branch:
                 return None
             return Workspace(
                 job_id=job.id,
                 path=self._safe_workspace_path(Path(job.workspace_path)),
                 branch=job.workspace_branch,
-                repository_url=job.repository_url,
+                local_path=job.local_path,
                 base_branch=job.base_branch or "main",
             )
 
-    def _ensure_repository_cache(self, cache_path: Path, repository_url: str) -> None:
-        if cache_path.exists():
-            return
-        self._run_git(["clone", "--bare", repository_url, str(cache_path)])
+    def _validate_local_repository(self, source_path: Path) -> None:
+        if not source_path.exists() or not source_path.is_dir():
+            raise ValueError(f"Local project path does not exist: {source_path}")
+        try:
+            root = self._run_git(
+                ["-C", str(source_path), "rev-parse", "--show-toplevel"]
+            ).stdout.strip()
+        except subprocess.CalledProcessError as exc:
+            raise ValueError(f"Local project is not a Git repository: {source_path}") from exc
+        if Path(root).resolve() != source_path:
+            raise ValueError(f"Select the Git repository root folder: {root}")
 
-    def _refresh_cache(self, cache_path: Path) -> None:
-        self._run_git(
-            [
-                "--git-dir",
-                str(cache_path),
-                "fetch",
-                "--prune",
-                "origin",
-                "+refs/heads/*:refs/heads/*",
-            ]
-        )
-
-    def _remove_worktree(self, cache_path: Path, workspace_path: Path) -> None:
-        if cache_path.exists():
+    def _remove_worktree(self, source_path: Path, workspace_path: Path) -> None:
+        if source_path.exists():
             self._run_git(
-                ["--git-dir", str(cache_path), "worktree", "remove", "--force", str(workspace_path)],
+                ["-C", str(source_path), "worktree", "remove", "--force", str(workspace_path)],
                 check=False,
             )
-            self._run_git(["--git-dir", str(cache_path), "worktree", "prune"], check=False)
+            self._run_git(["-C", str(source_path), "worktree", "prune"], check=False)
         if workspace_path.exists():
             shutil.rmtree(workspace_path)
-
-    def _cache_path(self, repository_url: str) -> Path:
-        digest = hashlib.sha256(repository_url.encode("utf-8")).hexdigest()[:24]
-        return Path(settings.repository_cache_root).resolve() / f"{digest}.git"
 
     def _workspace_path(self, job_id: UUID) -> Path:
         return self._safe_workspace_path(Path(settings.workspace_root) / str(job_id))
@@ -155,7 +150,6 @@ class RepositoryService:
         return resolved
 
     def _ensure_roots(self) -> None:
-        Path(settings.repository_cache_root).resolve().mkdir(parents=True, exist_ok=True)
         Path(settings.workspace_root).resolve().mkdir(parents=True, exist_ok=True)
 
     @staticmethod
