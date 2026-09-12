@@ -1,15 +1,17 @@
-# Development Workflow
+# Development AI Agent
 
-Python implementation of the Software Factory workflow, using the existing `software-factory` product/UI as the reference experience.
+Development AI Agent is a local AI-assisted software development workflow. It takes a requirement, prepares a developer-provided Git branch in the selected local repository, analyzes the codebase, uses a coding provider such as Codex to implement the change, and automatically runs repository-specific validation.
+
+The selected local project is the actual development workspace, so AI-generated changes are immediately visible in the developer's normal IDE (for example IntelliJ). The application does not create a separate source-code worktree for local projects.
 
 ## Iteration 1 scope
 
 This iteration intentionally stops after validation:
 
 ```text
-OPEN REPOSITORY
+OPEN LOCAL PROJECT
       ↓
-CREATE JOB / REQUIREMENT
+CREATE JOB / REQUIREMENT + WORKING BRANCH
       ↓
 INTAKE
       ↓
@@ -30,35 +32,36 @@ VALIDATE ── failed ──────┘
 COMPLETED
 ```
 
-Review agent, human approval and PR/MR creation are deliberately deferred to iteration 2.
+Review agent, human approval, commit/push and PR/MR creation are deliberately deferred to Iteration 2.
 
 ## Architecture
 
 ```text
-Next.js Software Factory UI
-           ↓ REST / polling
+Next.js Development AI Agent UI
+           ↓ REST + SSE live updates
 FastAPI Python backend
            ↓
-PostgreSQL job queue + audit events
+PostgreSQL job queue + workflow events
            ↓
 lease-owned worker subprocess
            ↓
 LangGraph + PostgreSQL checkpoint
            ↓
-per-job git worktree
+selected local Git project + developer-provided branch
            ↓
 repository-aware coding provider (Codex by default)
            ↓
 dynamic repository build/test validation
 ```
 
-The frontend retains the Software Factory repository-first workflow:
+The main UI routes are:
 
-- `/open` — register/open a repository workspace
-- `/board?project=<id>` — project board and requirement creation
-- `/board/<job-id>?project=<id>` — live job details, events, diff, changed files and validation results
+- `/dashboard` — home dashboard with projects and workflows
+- `/open` — select/register an existing local Git project
+- `/board?project=<id>` — project workflow board and requirement creation
+- `/board/<job-id>?project=<id>` — job details, events, diff, changed files and validation results
 
-The board lanes currently end at **Validation**. Iteration 2 will extend the same UI with Review, Human Approval and PR/MR lanes.
+The board receives workflow changes through Server-Sent Events (SSE), allowing running jobs to move through the workflow lanes without waiting for periodic frontend polling.
 
 ## Backend capabilities
 
@@ -68,7 +71,9 @@ The board lanes currently end at **Validation**. Iteration 2 will extend the sam
 - async dispatcher + isolated worker processes
 - heartbeat/lease based crash recovery
 - retry failed jobs from the latest durable checkpoint
-- repository cache + per-job git worktrees
+- direct operation on the selected local Git repository
+- developer-provided working branch created from the configured base branch
+- clean-working-tree protection before branch creation
 - repository analysis for Maven/Gradle/Node/Python/Go/Rust/.NET
 - repository instruction discovery (`AGENTS.md`, `CLAUDE.md`, `README.md`, `CONTRIBUTING.md`)
 - Codex CLI provider with structured result contract
@@ -76,14 +81,56 @@ The board lanes currently end at **Validation**. Iteration 2 will extend the sam
 - dynamic install/test/build validation
 - validation feedback loop back into implementation
 - workflow event history and stage timing metrics
+- SSE board updates
+
+## Prerequisites
+
+- Git
+- Python 3.12+
+- Node.js + npm
+- PostgreSQL
+- Codex CLI (when using the default Codex provider)
+- Java/Maven/Gradle/etc. as required by the projects that the agent will build and test
+
+Docker is optional. It is only a convenient way to run PostgreSQL locally.
 
 ## Local development
 
-### 1. PostgreSQL
+### 1. PostgreSQL — option A: Docker
+
+If Docker is available, the simplest setup is:
 
 ```bash
 docker compose up -d postgres
 ```
+
+### 1. PostgreSQL — option B: without Docker
+
+Development AI Agent does not require Docker. You can run PostgreSQL directly on your machine.
+
+On macOS with Homebrew:
+
+```bash
+brew install postgresql@16
+brew services start postgresql@16
+```
+
+Create the application user and database:
+
+```bash
+createuser -s workflow
+createdb -O workflow development_workflow
+psql -d postgres -c "ALTER USER workflow WITH PASSWORD 'workflow';"
+```
+
+Then configure `backend/.env` with the same connection information:
+
+```env
+DATABASE_URL=postgresql+psycopg://workflow:workflow@localhost:5432/development_workflow
+LANGGRAPH_DATABASE_URL=postgres://workflow:workflow@localhost:5432/development_workflow?sslmode=disable
+```
+
+You can also use an existing PostgreSQL server or a managed PostgreSQL instance. In that case, replace both URLs with the connection details for that database. Both the application persistence and LangGraph checkpointing require PostgreSQL in the current implementation.
 
 ### 2. Backend
 
@@ -96,9 +143,9 @@ cp .env.example .env
 uvicorn app.main:app --reload
 ```
 
-API docs: `http://localhost:8000/docs`
+API docs are available at `http://localhost:8000/docs`.
 
-The default coding provider is Codex. The worker machine must have an authenticated Codex CLI installation available on `PATH`.
+The default coding provider is Codex. The machine running the worker must have an authenticated Codex CLI installation available on `PATH`.
 
 Check provider readiness:
 
@@ -125,19 +172,23 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api
 
 ## Using the UI
 
-1. Open `/open` and register a repository URL/path plus base branch.
-2. Enter the repository board.
-3. Create a job with a title and requirement description.
-4. The Python worker prepares the worktree and analyzes the repository.
-5. Codex implements the requirement in the isolated worktree.
-6. Repository-specific tests/build commands run automatically.
-7. Failed validation is supplied back to the implementation agent, up to the configured attempt limit.
-8. Open the job card to inspect the event history, changed files, git diff, stage timings and validation status.
-9. Failed workflow jobs can be re-queued from the UI and resume from their persisted LangGraph checkpoint.
+1. Open `/open` and select an existing local Git project.
+2. Enter the project board.
+3. Create a development job with a title, a new working branch name, and the requirement/acceptance criteria.
+4. The backend verifies that the repository working tree is clean and creates the requested branch from the project's base branch.
+5. The workflow analyzes the repository and its build/test setup.
+6. Codex implements the requirement directly in the selected local project. Changes therefore appear immediately in the developer's IDE.
+7. Repository-specific tests/build commands run automatically.
+8. Failed validation is supplied back to the implementation agent, up to the configured attempt limit.
+9. The board updates live through SSE as the job moves through the workflow stages.
+10. Open the job card to inspect event history, changed files, Git diff, stage timings and validation status.
+11. In Iteration 1 the developer reviews the resulting files and commits/pushes the branch manually.
 
 ## Key configuration
 
 ```env
+DATABASE_URL=postgresql+psycopg://workflow:workflow@localhost:5432/development_workflow
+LANGGRAPH_DATABASE_URL=postgres://workflow:workflow@localhost:5432/development_workflow?sslmode=disable
 MAX_WORKERS=2
 WORKER_POLL_INTERVAL_SECONDS=1.0
 WORKER_HEARTBEAT_INTERVAL_SECONDS=5.0
@@ -153,7 +204,7 @@ RUN_INSTALL_BEFORE_VALIDATION=true
 
 ## Iteration 2
 
-The next iteration will extend the current graph and the reused Software Factory frontend with:
+The next iteration will extend the workflow with:
 
 ```text
 VALIDATE
