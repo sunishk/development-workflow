@@ -3,6 +3,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     app_name: str = "Development Workflow"
+    environment: str = "development"
     database_url: str = "postgresql+psycopg://workflow:workflow@localhost:5432/development_workflow"
     langgraph_database_url: str = "postgres://workflow:workflow@localhost:5432/development_workflow?sslmode=disable"
 
