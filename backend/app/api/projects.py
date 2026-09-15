@@ -91,22 +91,48 @@ def _browse_macos() -> str:
 
 
 def _browse_windows() -> str:
-    script = (
-        "Add-Type -AssemblyName System.Windows.Forms; "
-        "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog; "
-        "$dialog.Description = 'Select a local Git project'; "
-        "$dialog.ShowNewFolderButton = $false; "
-        "if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { "
-        "Write-Output $dialog.SelectedPath; exit 0 } else { exit 2 }"
-    )
+    # FolderBrowserDialog can open behind the browser/terminal when it is launched
+    # by the Uvicorn process. Give it an invisible top-most owner so Windows brings
+    # the native picker to the foreground. PowerShell must run in STA mode for
+    # Windows Forms dialogs.
+    script = r"""
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+$owner = New-Object System.Windows.Forms.Form
+$dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+$owner.TopMost = $true
+$owner.ShowInTaskbar = $false
+$owner.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
+$owner.Location = New-Object System.Drawing.Point(-32000, -32000)
+$owner.Size = New-Object System.Drawing.Size(1, 1)
+$dialog.Description = 'Select a local Git project'
+$dialog.ShowNewFolderButton = $false
+
+try {
+    $owner.Show()
+    $owner.Activate()
+    $result = $dialog.ShowDialog($owner)
+    if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
+        Write-Output $dialog.SelectedPath
+        exit 0
+    }
+    exit 2
+}
+finally {
+    $dialog.Dispose()
+    $owner.Dispose()
+}
+"""
     result = subprocess.run(
         ["powershell.exe", "-NoProfile", "-STA", "-Command", script],
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=60,
     )
     if result.returncode != 0:
-        raise HTTPException(status_code=400, detail="Folder selection cancelled")
+        detail = result.stderr.strip() or "Folder selection cancelled"
+        raise HTTPException(status_code=400, detail=detail)
     selected = result.stdout.strip()
     if not selected:
         raise HTTPException(status_code=400, detail="Folder selection cancelled")
@@ -128,7 +154,7 @@ def browse_project_folder() -> BrowseProjectResponse:
     except FileNotFoundError as exc:
         raise HTTPException(status_code=500, detail="Native folder browser command is not available") from exc
     except subprocess.TimeoutExpired as exc:
-        raise HTTPException(status_code=408, detail="Folder selection timed out") from exc
+        raise HTTPException(status_code=408, detail="Folder selection timed out; enter the local path manually") from exc
 
     return BrowseProjectResponse(path=selected_path)
 
