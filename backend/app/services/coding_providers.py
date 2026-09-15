@@ -47,7 +47,11 @@ class CodexCliProvider:
     def execute(self, workspace: Path, payload: dict) -> ProviderExecutionResult:
         prompt = self._build_prompt(payload)
 
-        with tempfile.TemporaryDirectory(prefix="development-ai-codex-") as temp_dir:
+        # Codex runs with workspace-write sandboxing. On Windows that sandbox can
+        # deny writes to the user's system temp directory, so keep the schema and
+        # final-response files inside the selected workspace for the duration of
+        # the provider call. TemporaryDirectory removes them immediately after.
+        with tempfile.TemporaryDirectory(prefix=".development-ai-codex-", dir=workspace) as temp_dir:
             temp_path = Path(temp_dir)
             schema_path = temp_path / "output-schema.json"
             output_path = temp_path / "last-message.json"
