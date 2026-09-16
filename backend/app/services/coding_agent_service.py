@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from uuid import UUID
 
-from app.core.config import settings
+from app.db import Job, SessionLocal
 from app.services.coding_providers import build_provider
 from app.services.event_service import event_service
 from app.services.filesystem_service import filesystem_service
@@ -33,6 +33,14 @@ class CodingAgentService:
         if workspace is None:
             raise ValueError(f"Job {job_id} has no prepared workspace")
 
+        with SessionLocal() as db:
+            job = db.get(Job, job_id)
+            if job is None:
+                raise ValueError(f"Job {job_id} not found")
+            workflow_name = (job.workflow_name or "").strip()
+        if not workflow_name:
+            raise ValueError("Job has no workflow selected")
+
         instructions: dict[str, str] = {}
         for path in profile.instruction_files:
             try:
@@ -40,7 +48,10 @@ class CodingAgentService:
             except (OSError, ValueError):
                 continue
 
-        workflow_bundle = workflow_catalog_service.load(settings.default_workflow_name)
+        # IMPLEMENT receives only implementation-specific instructions plus
+        # cross-cutting coding standards. Planning/review/testing skills and the
+        # full orchestrator document are intentionally excluded from this prompt.
+        workflow_bundle = workflow_catalog_service.load(workflow_name, "IMPLEMENT")
 
         payload = {
             "job_id": str(job_id),
@@ -52,10 +63,8 @@ class CodingAgentService:
             "validation_feedback": validation_feedback,
             "workflow": {
                 "name": workflow_bundle.name,
-                "repository_url": workflow_bundle.repository_url,
-                "repository_branch": workflow_bundle.repository_branch,
+                "stage": workflow_bundle.stage,
                 "repository_commit": workflow_bundle.repository_commit,
-                "content": workflow_bundle.workflow,
                 "skills": workflow_bundle.skills,
             },
         }
@@ -65,7 +74,8 @@ class CodingAgentService:
             "WORKFLOW_INSTRUCTIONS_LOADED",
             stage="IMPLEMENT",
             message=(
-                f"workflow={workflow_bundle.name}; commit={workflow_bundle.repository_commit}; "
+                f"workflow={workflow_bundle.name}; stage={workflow_bundle.stage}; "
+                f"commit={workflow_bundle.repository_commit}; "
                 f"skills={','.join(sorted(workflow_bundle.skills))}"
             )[:8000],
         )
