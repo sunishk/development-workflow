@@ -31,6 +31,8 @@ class WorkflowService:
                 raise ValueError(f"Job {job_id} not found")
             if job.worker_id != worker_id:
                 raise RuntimeError(f"Worker {worker_id} no longer owns job {job_id}")
+            if not job.workflow_name:
+                raise ValueError(f"Job {job_id} has no workflow selected")
 
             job.status = "RUNNING"
             job.error = None
@@ -49,10 +51,7 @@ class WorkflowService:
         )
 
         try:
-            if has_checkpoint:
-                result = self.graph.invoke(None, config)
-            else:
-                result = self.graph.invoke(self._initial_state(job_id), config)
+            result = self.graph.invoke(None, config) if has_checkpoint else self.graph.invoke(self._initial_state(job_id), config)
         except Exception as exc:
             return self._mark_failed(job_id, worker_id, config, exc)
 
@@ -62,7 +61,6 @@ class WorkflowService:
                 raise ValueError(f"Job {job_id} not found")
             if job.worker_id != worker_id:
                 raise RuntimeError(f"Worker {worker_id} lost ownership of job {job_id}")
-
             job.status = result.get("status", "COMPLETED")
             job.stage = result.get("stage", "UNKNOWN")
             job.workspace_path = result.get("workspace_path") or job.workspace_path
@@ -82,23 +80,15 @@ class WorkflowService:
             job = db.get(Job, job_id)
             if job is None:
                 raise ValueError(f"Job {job_id} not found")
+            if not job.workflow_name:
+                raise ValueError(f"Job {job_id} has no workflow selected")
             return {
-                "job_id": str(job.id),
-                "title": job.title,
-                "description": job.description,
-                "stage": "CREATED",
-                "status": "PENDING",
-                "requirements": "",
-                "tech_spec": "",
-                "tasks": [],
-                "local_path": job.local_path,
-                "base_branch": job.base_branch or "main",
-                "workspace_path": job.workspace_path,
-                "workspace_branch": job.workspace_branch,
-                "repository_profile": None,
-                "implementation_attempts": 0,
-                "validation_feedback": None,
-                "validation_passed": None,
+                "job_id": str(job.id), "title": job.title, "description": job.description,
+                "workflow_name": job.workflow_name, "stage": "CREATED", "status": "PENDING",
+                "requirements": "", "tech_spec": "", "tasks": [], "local_path": job.local_path,
+                "base_branch": job.base_branch or "main", "workspace_path": job.workspace_path,
+                "workspace_branch": job.workspace_branch, "repository_profile": None,
+                "implementation_attempts": 0, "validation_feedback": None, "validation_passed": None,
             }
 
     def _mark_failed(self, job_id: UUID, worker_id: str, config: dict, exc: Exception) -> Job:
@@ -106,7 +96,6 @@ class WorkflowService:
             job = db.get(Job, job_id)
             if job is None:
                 raise ValueError(f"Job {job_id} not found")
-
             job.status = "FAILED"
             job.error = str(exc)
             state = self.graph.get_state(config)
@@ -117,14 +106,7 @@ class WorkflowService:
             job.lease_expires_at = None
             db.commit()
             db.refresh(job)
-
-        event_service.record(
-            job_id,
-            "WORKFLOW_FAILED",
-            stage=job.stage,
-            message=str(exc),
-            worker_id=worker_id,
-        )
+        event_service.record(job_id, "WORKFLOW_FAILED", stage=job.stage, message=str(exc), worker_id=worker_id)
         return job
 
     def get_job(self, job_id: UUID) -> Job | None:
