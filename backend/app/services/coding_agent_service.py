@@ -1,11 +1,13 @@
 from dataclasses import dataclass
 from uuid import UUID
 
+from app.core.config import settings
 from app.services.coding_providers import build_provider
 from app.services.event_service import event_service
 from app.services.filesystem_service import filesystem_service
 from app.services.repository_analysis_service import RepositoryProfile
 from app.services.repository_service import repository_service
+from app.services.workflow_catalog_service import workflow_catalog_service
 
 
 @dataclass(frozen=True)
@@ -38,6 +40,8 @@ class CodingAgentService:
             except (OSError, ValueError):
                 continue
 
+        workflow_bundle = workflow_catalog_service.load(settings.default_workflow_name)
+
         payload = {
             "job_id": str(job_id),
             "title": title,
@@ -46,7 +50,25 @@ class CodingAgentService:
             "repository_profile": profile.to_dict(),
             "repository_instructions": instructions,
             "validation_feedback": validation_feedback,
+            "workflow": {
+                "name": workflow_bundle.name,
+                "repository_url": workflow_bundle.repository_url,
+                "repository_branch": workflow_bundle.repository_branch,
+                "repository_commit": workflow_bundle.repository_commit,
+                "content": workflow_bundle.workflow,
+                "skills": workflow_bundle.skills,
+            },
         }
+
+        event_service.record(
+            job_id,
+            "WORKFLOW_INSTRUCTIONS_LOADED",
+            stage="IMPLEMENT",
+            message=(
+                f"workflow={workflow_bundle.name}; commit={workflow_bundle.repository_commit}; "
+                f"skills={','.join(sorted(workflow_bundle.skills))}"
+            )[:8000],
+        )
 
         provider = build_provider()
         result = provider.execute(workspace.path, payload)
