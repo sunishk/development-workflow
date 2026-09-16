@@ -19,8 +19,8 @@ class WorkflowBundle:
 
 
 class WorkflowCatalogService:
-    def load(self, name: str | None = None) -> WorkflowBundle:
-        workflow_name = (name or settings.default_workflow_name).strip()
+    def load(self, name: str) -> WorkflowBundle:
+        workflow_name = name.strip()
         if not workflow_name:
             raise ValueError("Workflow name must not be empty")
 
