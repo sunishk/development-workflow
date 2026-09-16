@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     codex_model: str = ""
     max_implementation_attempts: int = 3
     run_install_before_validation: bool = True
+    workflow_repository_url: str = "https://github.com/sunishk/skillskit-workflow.git"
+    workflow_repository_branch: str = "main"
+    workflow_cache_root: str = ".factory/workflow-cache"
+    default_workflow_name: str = "feature-flow-orchestrator"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
