@@ -18,7 +18,6 @@ const LANES = [
 type LaneId = (typeof LANES)[number]["id"];
 
 function laneFor(job: Job): LaneId {
-  if (job.status === "COMPLETED") return "validation";
   switch (job.stage) {
     case "CREATED":
     case "INTAKE":
@@ -43,11 +42,15 @@ function laneFor(job: Job): LaneId {
 
 export function Kanban({ projectId, jobs }: { projectId: string; jobs: Job[] }) {
   const router = useRouter();
+  // This is an execution board, not the historical dashboard. Successful
+  // terminal jobs remain available on the landing dashboard/job details but
+  // must not appear as if they are still executing in their last stage.
+  const executionJobs = jobs.filter((job) => job.status !== "COMPLETED");
 
   return (
     <div className="grid grid-cols-1 gap-3 overflow-x-auto p-4 md:grid-cols-3 xl:grid-cols-7">
       {LANES.map((lane) => {
-        const laneJobs = jobs.filter((job) => laneFor(job) === lane.id);
+        const laneJobs = executionJobs.filter((job) => laneFor(job) === lane.id);
         return (
           <section key={lane.id} className="flex min-h-[62vh] min-w-[220px] flex-col rounded-xl bg-muted/50 p-2">
             <header className="flex items-baseline justify-between px-2 py-2">
@@ -61,7 +64,6 @@ export function Kanban({ projectId, jobs }: { projectId: string; jobs: Job[] }) 
               {laneJobs.map((job) => {
                 const running = ["QUEUED", "DISPATCHING", "RUNNING"].includes(job.status);
                 const failed = job.status === "FAILED";
-                const completed = job.status === "COMPLETED";
                 return (
                   <button
                     key={job.job_id}
@@ -71,7 +73,6 @@ export function Kanban({ projectId, jobs }: { projectId: string; jobs: Job[] }) 
                       "rounded-lg border bg-card p-3 text-left shadow-xs transition-all hover:-translate-y-px hover:shadow-sm",
                       running && "border-sky-200 ring-1 ring-sky-100",
                       failed && "border-red-200",
-                      completed && "border-emerald-200",
                     )}
                   >
                     <p className="line-clamp-3 text-sm font-medium leading-snug">{job.title}</p>
@@ -82,7 +83,6 @@ export function Kanban({ projectId, jobs }: { projectId: string; jobs: Job[] }) 
                           {job.status === "QUEUED" ? "Queued" : `Running · ${job.stage}`}
                         </Badge>
                       )}
-                      {completed && <Badge variant="success">Validated</Badge>}
                       {failed && <Badge variant="failed">Failed · {job.stage}</Badge>}
                       {job.base_branch && <Badge variant="outline">{job.base_branch}</Badge>}
                     </div>
